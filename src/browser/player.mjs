@@ -113,6 +113,30 @@ export async function startPlayback(session, { rate = 1.0 } = {}) {
   })()`);
 }
 
+/**
+ * 读取页面级静音自检报告。
+ * 返回 null 表示注入脚本未生效（此时只有进程级 --mute-audio 兜底，应当视为不可信）。
+ */
+export async function checkSilence(session) {
+  const raw = await session.evaluate(`(function () {
+    try {
+      if (typeof window.__cxCheckSilence !== 'function') {
+        return JSON.stringify({ installed: false, silent: false, media: [], problems: ['静音脚本未注入'] });
+      }
+      var r = window.__cxCheckSilence();
+      r.installed = true;
+      return JSON.stringify(r);
+    } catch (e) {
+      return JSON.stringify({ installed: false, silent: false, media: [], problems: [String(e && e.message)] });
+    }
+  })()`);
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
 /** 一次监督采样：关弹窗、必要时恢复播放、返回进度 */
 export async function samplePlayback(session) {
   const raw = await session.evaluate(`(async () => {
@@ -142,13 +166,17 @@ export async function samplePlayback(session) {
       v.muted = true;
       try { await v.play(); } catch (e) {}
     }
+    var silence = null;
+    try { if (typeof window.__cxCheckSilence === 'function') silence = window.__cxCheckSilence(); } catch (e) {}
+
     return JSON.stringify({
       currentTime: v.currentTime,
       duration: Number.isFinite(v.duration) ? v.duration : null,
       ended: v.ended,
       paused: v.paused,
       muted: v.muted,
-      dismissed: dismissed
+      dismissed: dismissed,
+      silence: silence
     });
   })()`);
 
@@ -159,9 +187,22 @@ export async function samplePlayback(session) {
   }
 }
 
+/** 立刻暂停当前视频（静音失败时用于止血） */
+async function pauseVideo(session) {
+  await session.evaluate(`(function () {
+    try {
+      const ifr = [...document.querySelectorAll('iframe')].find(function (f) {
+        return String(f.src || '').indexOf('${SELECTORS.videoModule}') !== -1;
+      });
+      const v = ifr && ifr.contentDocument && ifr.contentDocument.querySelector('video');
+      if (v) { v.pause(); v.muted = true; v.volume = 0; }
+    } catch (e) {}
+  })()`);
+}
+
 /**
  * 播放一个知识点直到结束。
- * @returns {Promise<{status:'played'|'skipped'|'failed'|'stalled', kind?:string, duration?:number, seconds?:number, memo?:string}>}
+ * @returns {Promise<{status:'played'|'skipped'|'failed'|'stalled', kind?:string, duration?:number, seconds?:number, memo?:string, silence?:object}>}
  */
 export async function playKnowledge(session, opts) {
   const {
@@ -190,6 +231,18 @@ export async function playKnowledge(session, opts) {
   const started = await startPlayback(session, { rate });
   if (started !== 'ok') {
     return { status: 'failed', kind: 'video', memo: String(started) };
+  }
+
+  // 静音自检：页面层没静音就立刻停，宁可失败也不让用户被声音打扰
+  const silence = await checkSilence(session);
+  if (silence && !silence.silent) {
+    await pauseVideo(session);
+    return {
+      status: 'failed',
+      kind: 'video',
+      memo: '静音自检未通过，已暂停播放：' + (silence.problems || []).join('; '),
+      silence,
+    };
   }
 
   const durationMs =

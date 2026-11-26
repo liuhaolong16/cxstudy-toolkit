@@ -14,6 +14,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { findChrome } from './chrome.mjs';
+import { AUDIO_MUTE_SOURCE } from './audio-mute.mjs';
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -91,6 +92,13 @@ export class ChromeSession {
 
     const session = new ChromeSession({ child, port, profileDir, version });
     await session._connect();
+
+    // 默认注入页面级静音（含 Web Audio 接管）：本工具的浏览器没有需要出声的场景。
+    // 传 silent:false 可关闭，用于排查"到底是哪一层没静音"。
+    if (opts.silent !== false) {
+      await session.addInitScript(AUDIO_MUTE_SOURCE);
+    }
+
     if (opts.cookies && Object.keys(opts.cookies).length) {
       await session.setCookies(opts.cookies, opts.cookieDomain || '.chaoxing.com');
     }
@@ -179,6 +187,15 @@ export class ChromeSession {
       const idx = list.indexOf(handler);
       if (idx >= 0) list.splice(idx, 1);
     };
+  }
+
+  /**
+   * 注入初始化脚本：在每次导航的页面脚本执行之前运行。
+   * 必须在 goto 之前调用。
+   */
+  async addInitScript(source) {
+    const res = await this.send('Page.addScriptToEvaluateOnNewDocument', { source });
+    return res.result?.identifier || null;
   }
 
   /** 批量注入 cookie 到指定域 */

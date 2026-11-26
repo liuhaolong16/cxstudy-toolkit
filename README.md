@@ -152,6 +152,36 @@ cxstudy check --cid 246180456 --clz 106042289
 
 也支持不落盘：`CX_COOKIE` 环境变量直接给 Cookie 头。
 
+## 静音保证（四层）
+
+后台播放最怕「看不见的窗口在响」。这个工具做了四层，并且**每一层都能自检**：
+
+| 层 | 机制 | 自检方式 |
+|---|---|---|
+| 1. 进程级 | Chrome 启动带 `--mute-audio` | 启动日志会打印 |
+| 2. 元素级 | 每 800ms 递归所有同源 iframe，强制 `<video>/<audio>` 的 `muted=true` + `volume=0` | `window.__cxCheckSilence()` |
+| 3. WebAudio 级 | 接管 `AudioNode.prototype.connect`，所有连到 `destination` 的节点改接 `gain=0` | 报告里的 `gainsInstalled` |
+| 4. 兜底 | **静音自检不通过就立刻暂停播放**，绝不让它边响边跑 | `playKnowledge` 返回 `status: failed` + 原因 |
+
+独立验证命令：
+
+```bash
+node scripts/verify-silence.mjs --cid <id> --clz <id>
+```
+
+它会真的播放 9 秒，然后读取页面层报告并立刻暂停。实测输出：
+
+```
+注入脚本已生效: 是
+<video> muted=true volume=0 playing=true hasSrc=true
+WebAudio 接管: 0 个 gain
+✓ 静音链路通过
+```
+
+`WebAudio 接管: 0 个` 是**正常**的——它说明该播放器走的是原生 `<video>` 音频，没有绕过 `muted`。如果哪天平台改成 Web Audio，这个数字会变成 1 以上，机制照样兜住。
+
+> 注意：第 2/3 层是**页面层**判据，证明页面上没有任何会被播放的音频通路。系统级音量输出不在此检查范围（需要 OS API），由第 1 层的 `--mute-audio` 兜底。
+
 ## 已知限制
 
 1. **播放成功 ≠ 平台记账**（见开头的说明）。

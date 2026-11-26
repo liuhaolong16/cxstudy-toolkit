@@ -27,6 +27,7 @@ export { loginInteractive, waitForLogin } from './auth/login.mjs';
 
 export { findChrome, readChromeVersion } from './browser/chrome.mjs';
 export { ChromeSession } from './browser/cdp.mjs';
+export { AUDIO_MUTE_SOURCE, isSilentReport, summarizeSilence } from './browser/audio-mute.mjs';
 export {
   SELECTORS,
   classifyModule,
@@ -34,6 +35,7 @@ export {
   startPlayback,
   samplePlayback,
   playKnowledge,
+  checkSilence,
 } from './browser/player.mjs';
 
 export {
