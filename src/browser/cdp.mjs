@@ -235,7 +235,14 @@ export class ChromeSession {
     });
     if (res.result?.exceptionDetails) {
       const detail = res.result.exceptionDetails;
-      throw new Error('页面求值异常: ' + (detail.text || detail.exception?.description || 'unknown'));
+      // exception.description 通常带真实错误与堆栈；detail.text 往往只有 "Uncaught"
+      const description =
+        detail.exception?.description ||
+        detail.exception?.value ||
+        detail.text ||
+        'unknown';
+      const line = detail.lineNumber !== undefined ? ` (line ${detail.lineNumber})` : '';
+      throw new Error('页面求值异常' + line + ': ' + description);
     }
     return res.result?.result?.value;
   }

@@ -41,6 +41,17 @@ export function classifyModule(name) {
 }
 
 /**
+ * 把 RegExp 转成可以安全嵌入注入脚本的表达式。
+ *
+ * 不能直接用 `${re.source}`：
+ *   `.source` 不含前后的 `/`，拼进代码就变成 `^(确定|...)$.test(t)` —— 语法错误。
+ * 必须经 JSON.stringify 包成字符串再 new RegExp。
+ */
+export function regexLiteral(re) {
+  return `new RegExp(${JSON.stringify(re.source)}, ${JSON.stringify(re.flags || '')})`;
+}
+
+/**
  * 读取当前知识点页的任务点结构。
  */
 export async function inspectKnowledge(session) {
@@ -48,7 +59,7 @@ export async function inspectKnowledge(session) {
     const iframes = [...document.querySelectorAll('iframe')];
     const modules = iframes.map(function (f) {
       const src = String(f.src || f.getAttribute('src') || '');
-      const m = src.match(${SELECTORS.moduleRegex});
+      const m = src.match(${regexLiteral(SELECTORS.moduleRegex)});
       return m ? m[1].toLowerCase() : null;
     }).filter(Boolean);
 
@@ -149,7 +160,7 @@ export async function samplePlayback(session) {
       try {
         const btns = [...d.querySelectorAll('a,button,div,span')].filter(function (el) {
           const t = (el.innerText || '').trim();
-          return ${SELECTORS.modalButtonText.source}.test(t) && el.offsetParent !== null;
+          return ${regexLiteral(SELECTORS.modalButtonText)}.test(t) && el.offsetParent !== null;
         });
         if (btns.length) { btns[0].click(); dismissed = true; break; }
       } catch (e) {}

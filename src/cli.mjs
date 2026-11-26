@@ -221,6 +221,7 @@ async function cmdPlay() {
       }
       log(`[${i + 1}/${targets.length}] 处理  ${item.title}`);
 
+      let lastMarker = -1;
       const result = await playKnowledge(session, {
         courseId,
         classId,
@@ -230,6 +231,12 @@ async function cmdPlay() {
         testSeconds: num('test-seconds', 0),
         onProgress: (p) => {
           if (p.dismissed) log('  （已关闭弹窗）');
+          // 每 30 秒打一次，避免刷屏又能看出在推进
+          const marker = Math.floor((p.currentTime || 0) / 30);
+          if (marker !== lastMarker) {
+            lastMarker = marker;
+            log(`  t=${p.currentTime}/${p.duration ?? '?'}`);
+          }
         },
       });
 
