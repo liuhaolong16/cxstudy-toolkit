@@ -226,6 +226,21 @@ WebAudio 接管: 0 个 gain
 4. 学习通的部分接口有 IP 白名单（如 `specie.chaoxing.com`），本项目不依赖它们。
 5. 播放耗时等于视频总时长，**不存在加速刷完**。
 
+## 操作浏览器的四件套
+
+这个项目在开发过程中沉淀出一套桌面自动化组合：**pwsh + Windows-MCP + dsh-streamvision + CDP**。
+
+它们**互补，不是替代关系**：
+
+| 工具 | 擅长 |
+|---|---|
+| pwsh | 文件/进程、`SendKeys`、剪贴板 |
+| Windows-MCP | 鼠标点击、UIA 元素树、原生对话框 |
+| dsh-streamvision | 屏幕序列帧、视觉理解 |
+| **CDP** | 执行 JS、读完整 DOM、读 httpOnly cookie、持久注入 |
+
+什么时候用哪个、CDP 的两个坑（Chrome 136+ 要非默认 profile、新 profile 无登录态），见 [docs/TOOLCHAIN.md](docs/TOOLCHAIN.md)。
+
 ## 开发
 
 ```bash

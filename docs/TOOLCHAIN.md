@@ -1,0 +1,98 @@
+# 操作浏览器的四件套
+
+## 一句话
+
+桌面自动化不是只有一种手段。**这四件各有所长，互补，不替代。**
+
+## 四件套
+
+| # | 工具 | 擅长 | 不擅长 |
+|---|---|---|---|
+| 1 | **pwsh** | 文件/进程/注册表；`SendKeys` 发按键；`Set-Clipboard` | 看不见页面内部结构 |
+| 2 | **Windows-MCP** | 鼠标点击、UIA 元素树、原生对话框、截图 | 需要用户连续空闲 10 秒才拿到控制权 |
+| 3 | **dsh-streamvision** | 屏幕序列帧、视觉理解 | 需要重启 DSH 才注册 `sv_*` |
+| 4 | **CDP**（本仓库新增） | 执行 JS、读完整 DOM、读 httpOnly cookie、持久注入 | 点不了浏览器外部的东西 |
+
+## 怎么选
+
+| 任务 | 用哪个 | 原因 |
+|---|---|---|
+| 装 Chrome 扩展（原生文件夹对话框） | GUI | CDP 碰不到系统对话框 |
+| 点掉页面弹窗 | GUI 或 CDP | 都行 |
+| **读页面里有几个 `<video>`、各自 duration** | **CDP** | GUI 完全看不见 DOM |
+| **给视频设 2x + 静音 + 播放** | **CDP** | 一行 JS 的事 |
+| **页面跳转后脚本还在** | **CDP** | `Page.addScriptToEvaluateOnNewDocument` |
+| **读 httpOnly cookie** | **CDP** | `Network.getAllCookies` |
+| 关 Chrome / 查进程 / 复制路径 | pwsh | 最快 |
+| 点浏览器以外的原生按钮 | Windows-MCP | OS 级输入 |
+
+## CDP 的两个坑（实测）
+
+**① Chrome 136+ 必须用非默认 `--user-data-dir`**
+
+```
+chrome.exe --remote-debugging-port=9222                    ← 端口被静默忽略
+chrome.exe --remote-debugging-port=9222 --user-data-dir=X   ← 才生效
+```
+
+症状：`Invoke-RestMethod http://127.0.0.1:9222/json/version` 报「无法连接到远程服务器」。
+
+**② 新 profile 是空的，没有登录态**
+
+用非默认 profile 换来了调试端口，但也失去了原来的 cookie。用 `scripts/cdp-login.mjs` 把 `~/.cxstudy-toolkit/cookies.json` 注入进去。
+
+> 注意：注入的只有账号级 cookie。课程级 cookie（`<courseid>enc` / `ut` / `cpi` / `t`）会在**真实访问课程页时由服务端下发**——这正是它能记账的关键，别自己伪造。
+
+## 启动流程
+
+```powershell
+# 1. 关掉现有 Chrome
+Get-Process chrome -ErrorAction SilentlyContinue | Stop-Process -Force
+
+# 2. 带调试端口 + 非默认 profile 启动
+$profile = "$env:TEMP\cx-chrome-cdp"
+Start-Process "C:\Program Files\Google\Chrome\Application\chrome.exe" -ArgumentList @(
+  '--remote-debugging-port=9222',
+  "--user-data-dir=$profile",
+  '--no-first-run'
+)
+
+# 3. 验证端口
+Invoke-RestMethod 'http://127.0.0.1:9222/json/version'
+
+# 4. 注入 cookie 并导航到课程页
+node scripts/cdp-login.mjs --port 9222 --goto "<studentcourse URL>"
+
+# 5. 执行任意 JS（诊断 / 控制）
+node scripts/cdp-probe.mjs --js "document.title"
+node scripts/cdp-probe.mjs --js "JSON.stringify([...document.querySelectorAll('video')].map(v=>({d:v.duration,cur:v.currentTime})))"
+```
+
+## 为什么把它加进来
+
+只有三件套时，我能**点**、能**读页面文本**，但**看不见 DOM 结构**。
+
+这直接造成了一个查不出来的 bug：
+
+```
+播放器显示：12:17 / 1:43:52   = 737 秒
+扩展浮窗：  81 / 6232          = 81 秒
+```
+
+我没有任何手段自己发现「扩展抓错了 `<video>` 元素」，只能靠用户发截图。加了 CDP 之后，一条 JS 就能问清楚：
+
+```
+{
+  "count": 1,
+  "videos": [{ "depth": 2, "path": "top/0/0", "d": null, "cur": 740, "ready": 0 }]
+}
+```
+
+**问题第一次能被工具自己诊断出来，而不是等人来看。**
+
+## 纪律
+
+- **先选能看清的**：需要读内部结构就用 CDP，不要靠截图猜
+- **再选能点到的**：需要碰系统 UI 就用 GUI
+- **不要用一个的能力去否定另一个**：这是两套不同的入口，不是竞争关系
+- **操作前先确认对象**：`document.querySelector` 返回的是哪个元素、`SendKeys` 打进了哪个窗口——先核实再动手
