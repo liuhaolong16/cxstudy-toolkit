@@ -89,6 +89,50 @@
     return btn;
   }
 
+  function findBackButton() {
+    let btn = null;
+    eachDoc((doc) => {
+      if (btn) return;
+      let els;
+      try { els = doc.querySelectorAll('a,button,div,span'); } catch (e) { return; }
+      for (const el of els) {
+        const t = (el.innerText || '').trim();
+        if (t !== '返回课程' && t !== '返回' && t !== '返回列表') continue;
+        if (t.length > 6) continue;
+        if (el.offsetParent === null) continue;
+        btn = el;
+        return;
+      }
+    }, document, 0);
+    return btn;
+  }
+
+  /**
+   * 在章节列表页找「第一个未完成的任务点」。
+   *
+   * 判据：chapter_item 里同时满足
+   *   1) 有 ans-job-icon-clear 标记（未完成）
+   *   2) 文本末尾有任务点数量（如「第二节：视频慕课学习 1」）
+   * 完成的任务点没有 clear 标记，所以不会被选中。
+   */
+  function findNextUnfinished() {
+    let items;
+    try { items = [...document.querySelectorAll('.chapter_item')]; } catch (e) { return null; }
+    for (const item of items) {
+      let clear = null;
+      try { clear = item.querySelector('[class*="ans-job-icon-clear"]'); } catch (e) {}
+      if (!clear) continue;
+      const t = (item.innerText || '').trim();
+      if (!/\s\d+\s*$/.test(t)) continue;
+      let title = null;
+      try { title = item.querySelector('.catalog_title, .clicktitle, a'); } catch (e) {}
+      if (title && title.offsetParent !== null) return title;
+    }
+    return null;
+  }
+
+  const NEED_NEXT_KEY = '__cxNeedNext';
+
   let panel = null;
   function ensurePanel() {
     if (panel && document.body && document.body.contains(panel)) return panel;
@@ -150,13 +194,45 @@
   let noVideoSince = 0;
 
   function goNext() {
+    // 1. 有「下一节」按钮就直接点
     const btn = findNextButton();
-    if (!btn) { setStatus('课程结束（无下一节）'); return false; }
-    setStatus('→ 下一节');
-    btn.click();
-    endedAt = 0;
-    noVideoSince = 0;
-    return true;
+    if (btn) {
+      setStatus('→ 下一节');
+      btn.click();
+      endedAt = 0;
+      noVideoSince = 0;
+      return true;
+    }
+
+    // 2. 没有「下一节」（学习通的视频页 cards 就是没有）→ 返回课程列表并标记续播
+    const back = findBackButton();
+    if (back) {
+      setStatus('→ 返回课程，找下一个未完成');
+      try { sessionStorage.setItem(NEED_NEXT_KEY, '1'); } catch (e) {}
+      back.click();
+      return true;
+    }
+
+    setStatus('找不到「下一节」也找不到「返回课程」');
+    return false;
+  }
+
+  /** 从视频页返回列表后，自动点下一个未完成的任务点 */
+  function tryResumeNext() {
+    let need = false;
+    try { need = sessionStorage.getItem(NEED_NEXT_KEY) === '1'; } catch (e) {}
+    if (!need) return;
+    try { sessionStorage.removeItem(NEED_NEXT_KEY); } catch (e) {}
+    setStatus('列表页：找下一个未完成…');
+    setTimeout(() => {
+      const next = findNextUnfinished();
+      if (next) {
+        setStatus('→ 下一个未完成任务点');
+        next.click();
+      } else {
+        setStatus('没有未完成的任务点了');
+      }
+    }, 1500);
   }
 
   function tickTop() {
@@ -197,6 +273,7 @@
       setStatus('已启动，等待视频…');
       setInterval(tickTop, CFG.checkMs);
       tickTop();
+      tryResumeNext();
     }
     if (document.readyState === 'loading') {
       document.addEventListener('DOMContentLoaded', boot);
