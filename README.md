@@ -1,8 +1,10 @@
 # 超星学习通工具包
 
-> **先看这一条**：本工具能让课程视频在后台真实播放，但**经实测，学习通不会因此把任务点标记为「已完成」**。
-> 证据与复现步骤见 [docs/PROGRESS-FINDINGS.md](docs/PROGRESS-FINDINGS.md)。
-> 本工具**不是刷课器**，也不提供伪造学习记录的能力。使用前请读 [DISCLAIMER.md](DISCLAIMER.md)。
+> **先看这一条**：**能否让任务点变成「已完成」，取决于跑在哪个浏览器里。**
+> 用本工具的 CLI（headless 或有头）播放，视频会真实播放、心跳会上报，但学习通**不认账**；
+> 装 [浏览器扩展](extension/) 在你**自己登录过的浏览器**里播放，才能被记为完成。
+> 原因与实测证据见 [docs/PROGRESS-FINDINGS.md](docs/PROGRESS-FINDINGS.md)，扩展原理见 [docs/EXTENSION.md](docs/EXTENSION.md)。
+> 本工具**不是刷课器**：视频时长一秒一秒走，不伪造任何上报。使用前请读 [DISCLAIMER.md](DISCLAIMER.md)。
 
 一个零第三方依赖的 Node 工具包，把学习通的「读」能力整理成 CLI、库和 MCP server 三份接口：
 
@@ -77,6 +79,40 @@ cxstudy play --cid 246180456 --clz 106042289
 **断点续**：播过的知识点记在 `~/.cxstudy-toolkit/played-<courseId>.json`，中断后重跑自动跳过。
 
 **跳过清单**：作业、测验、PPT、文档、讨论一律不碰，跑完会打印「需要你自己处理的清单」。
+
+## 浏览器扩展（想要「记账」就用这个）
+
+CLI 能播放，但平台不认。要让任务点真的变绿，必须用你自己登录过的浏览器。
+
+```
+extension/
+├── manifest.json    MV3 清单
+└── content.js       自动连播逻辑（2x 静音、播完下一节、无视频跳过）
+```
+
+**装法（不需要网络，不需要应用商店）**
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\install-extension.ps1
+```
+
+脚本会打开 `chrome://extensions`，然后你只需三下：
+
+1. 打开右上角 **开发者模式**
+2. 点左上角 **加载未打包的扩展程序**
+3. 选 `extension` 目录（脚本已把路径放进剪贴板，直接 Ctrl+V）
+
+装好后打开任意学习通视频页，右下角会出现浮窗：
+
+```
+超星自动连播
+1824/6232 · 2x · 静音
+[暂停] [下一节]
+```
+
+它会自己一节课一节课往下播，跳转后浮窗仍在（这才是和 CLI 的本质区别）。
+
+细节与排错见 [docs/EXTENSION.md](docs/EXTENSION.md)。
 
 ## MCP 接入
 
@@ -184,7 +220,7 @@ WebAudio 接管: 0 个 gain
 
 ## 已知限制
 
-1. **播放成功 ≠ 平台记账**（见开头的说明）。
+1. **播放成功 ≠ 平台记账**：CLI 播放（headless 或有头）不会被记入进度；要记账请用上面的浏览器扩展，在你自己登录过的浏览器里播。原因见 [PROGRESS-FINDINGS](docs/PROGRESS-FINDINGS.md)。
 2. 只实测过 Windows 11 + Chrome 157。macOS/Linux 的代码路径按跨平台写，但未实测。
 3. 平台改版会导致选择器失效——相关常量集中在 `src/browser/player.mjs` 顶部的 `SELECTORS`。
 4. 学习通的部分接口有 IP 白名单（如 `specie.chaoxing.com`），本项目不依赖它们。

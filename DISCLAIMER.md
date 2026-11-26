@@ -6,9 +6,11 @@
 
 **请先读这一条**：
 
-> 本工具可以让视频在后台真实播放，但**经过实测，学习通不会因此把任务点标记为「已完成」**。
-> 详见 [docs/PROGRESS-FINDINGS.md](docs/PROGRESS-FINDINGS.md)。
-> 任何声称本工具能「刷完课程」「一晚上搞定一学期」的说法都与事实不符。
+> **能否让任务点变成「已完成」，取决于跑在哪个浏览器里。**
+> 用 CLI 播放（headless 或有头），学习通**不会认账**——浏览器里缺少平台下发的课程级 cookie；
+> 用 `extension/` 扩展装在**你自己登录过的浏览器**里播放，**会被记为完成**。
+> 原因与实测证据见 [docs/PROGRESS-FINDINGS.md](docs/PROGRESS-FINDINGS.md)。
+> 任何声称本工具能「刷完课程」「一晚上搞定一学期」的说法都与事实不符——视频时长仍然一秒一秒走。
 
 ### 本项目不做的事
 
@@ -44,8 +46,11 @@ This toolkit is a **personal study-management and browser-automation tool** for 
 
 **Read this first**:
 
-> The tool can genuinely play course videos in the background, but as verified by experiment, **Chaoxing does not mark the task point as completed as a result**.
-> See [docs/PROGRESS-FINDINGS.md](docs/PROGRESS-FINDINGS.md).
+> **Whether a task point becomes "completed" depends on which browser runs it.**
+> The CLI (headless or headed) plays the video but Chaoxing does **not** credit it — the browser lacks the course-scoped cookies the platform issues.
+> The `extension/` loaded into **your own logged-in browser** **does** get credited.
+> See [docs/PROGRESS-FINDINGS.md](docs/PROGRESS-FINDINGS.md) for the measurements.
+> No claim of "finish a whole course overnight" is true — the video still plays in real time.
 
 Out of scope (no code is provided for these):
 

@@ -106,9 +106,14 @@ export async function gateReachable({ session, courseId, classId, personId, know
 /**
  * progress：播放前后「已完成任务点」计数是否变化。
  *
- * ⚠️ 根据 2026-11-26 实测，本工具**不能**让该计数增加。
- * 此门默认恒红，用于如实暴露工具边界，而不是粉饰。
- * 只有调用方显式传入 before/after 两次读数时才做真实比较。
+ * 判据本身只做一件事：比较两次读数。它不预设结论。
+ *
+ * 已知事实（详见 docs/PROGRESS-FINDINGS.md）：
+ *   - 用本工具的 CLI（headless 或有头）播放，计数通常**不会**变化
+ *   - 用 extension/ 里的浏览器扩展，在用户自己登录过的浏览器里播放，计数**可能**变化
+ *   - 差异与浏览器是否持有平台下发的课程级 cookie（<courseid>enc / ut / cpi / t）有关
+ *
+ * 所以这里不写"恒红"也不写"恒绿"——有读数就按读数判，没读数就说没读数。
  */
 export async function gateProgress({ before, after }) {
   const evidence = { before: before ?? null, after: after ?? null, sampledAt: new Date().toISOString() };
@@ -116,7 +121,7 @@ export async function gateProgress({ before, after }) {
   if (!before || !after) {
     return fail2(
       'progress',
-      '未提供播放前后的进度读数；且已知本工具不会让任务点完成计数增加（见 docs/PROGRESS-FINDINGS.md）',
+      '未提供播放前后的进度读数。注意：CLI 播放通常不会被记账；要记账请用 extension/ 浏览器扩展（见 docs/EXTENSION.md）',
       evidence
     );
   }
@@ -127,7 +132,7 @@ export async function gateProgress({ before, after }) {
   }
   return fail2(
     'progress',
-    `计数未增加: ${before.done}/${before.total} → ${after.done}/${after.total}（播放成功不等于平台记账）`,
+    `计数未增加: ${before.done}/${before.total} → ${after.done}/${after.total}（播放成功不等于平台记账；浏览器可信度决定结果，见 docs/PROGRESS-FINDINGS.md）`,
     evidence
   );
 }

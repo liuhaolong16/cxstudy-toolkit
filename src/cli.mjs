@@ -67,8 +67,14 @@ play 选项：
   --cpi <id>        personId / cpi，通常可从 courses 输出里拿到
 
 重要：
-  本工具能让视频真实播放，但经实测平台**不会**因此把任务点标记为完成。
-  详见 docs/PROGRESS-FINDINGS.md 与 DISCLAIMER.md。
+  CLI 播放（headless 或有头）会让视频真实播放，但平台**不认账**：
+  任务点不会变成已完成，因为浏览器里缺少平台下发的课程级 cookie。
+
+  要真的让任务点变绿，请用浏览器扩展（extension/ 目录）：
+      powershell -ExecutionPolicy Bypass -File scripts\install-extension.ps1
+  装在你**自己登录过**的 Chrome 里，然后打开课程视频页即可自动连播。
+
+  详见 docs/EXTENSION.md 与 docs/PROGRESS-FINDINGS.md。
 `;
 
 async function cmdAuth() {

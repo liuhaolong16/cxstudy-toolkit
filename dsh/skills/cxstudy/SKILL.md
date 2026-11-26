@@ -7,76 +7,42 @@ description: 用 cxstudy-toolkit 读取学习通课程/章节/进度、后台静
 
 ## 先确认边界
 
-这个工具**能让视频真实播放，但不能让平台把任务点标记为完成**。
+**能否让任务点变成「已完成」，取决于跑在哪个浏览器里。**
 
-用户如果问"能不能刷完/一晚上搞定一学期"，直接回答：**不能**，并说明原因（见下）。
-不要顺着用户的期待去暗示"应该能"。
+- 用 CLI（`cxstudy play`，headless 或有头）播放：视频真播、心跳真发，但**平台不认账**，任务点不变绿。
+- 用 `extension/` 里的浏览器扩展，在**用户自己登录过的浏览器**里播放：**会被记账**。
 
-实测数据（四种组合一致）：
+原因是浏览器是否持有平台下发的**课程级 cookie**（`<courseid>enc` / `ut` / `cpi` / `t`）。CLI 导出的 19 条账号级 cookie 覆盖不到这一层。
 
-- 无头 / 有头屏幕外 → 都不改变任务点状态
-- 播到 `currentTime >= duration-1` / 真正触发 `ended` → 都不改变
-- 页面上报 `isPassed: true` → 只是心跳校验通过，**不是完成标记**
-
-判定标记是 `ans-job-icon-clear`（未完成），不是 `ans-job-finished`（那只是容器结构类）。
+所以用户如果问"能不能让进度真的涨"，**答案是用扩展，不是用 CLI**，不要含糊。
 
 ## 什么时候用
 
-- 用户想看某门课有哪些章节、还差多少任务点
-- 用户想把课程视频挂后台播放（人不在电脑前）
-- 用户想让 Agent 通过 MCP 操作学习通
-- 用户遇到"播放成功但进度没涨"，需要解释
+- 用户想看某门课有哪些章节、还差多少任务点 → CLI `chapters`
+- 用户想让整门课自动播完并记进进度 → **扩展**（`scripts/install-extension.ps1`）
+- 用户想让 Agent 通过 MCP 操作学习通 → MCP server
+- 用户遇到"播放成功但进度没涨" → 解释浏览器可信度差异，引导装扩展
 
 ## 标准流程
 
+**A. 只查数据（CLI）**
+
 ```bash
-# 1. 会话
 cxstudy auth status
-# 失效则：cxstudy auth login（会弹浏览器，用户自己登录）
-
-# 2. 课程
 cxstudy courses
-# 记下 courseId / classId
-
-# 3. 章节与进度
 cxstudy chapters --cid <id> --clz <id>
-
-# 4. 先干跑
-cxstudy play --cid <id> --clz <id> --dry-run --limit 3
-
-# 5. 真播
-cxstudy play --cid <id> --clz <id>
 ```
 
-## 排查顺序
+**B. 要记账（扩展）**
 
-| 现象 | 先查 |
-|---|---|
-| 会话失效 | `cxstudy auth status`，必要时重新 login |
-| 找不到课程 | `--cid/--clz` 是否来自 `courses` 的输出（别手抄错） |
-| 视频播不了 | 加 `--headed` 看有头是否有差异；查 `cxstudy check` 的 `reachable` 门 |
-| 播了进度不涨 | **这是已知行为**，不是 bug，见 PROGRESS-FINDINGS |
-| 平台改版 | 改 `src/browser/player.mjs` 顶部的 `SELECTORS` |
-
-## 判据门
-
-```bash
-cxstudy check --cid <id> --clz <id>
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\install-extension.ps1
 ```
 
-`progress` 门恒红是设计如此。向用户解释时要说清楚：这是工具在如实暴露边界，
-不是"还没修好的 bug"。
+装好后打开任意学习通视频页，右下角出现「超星自动连播」浮窗，它会 2 倍速静音自动连播。
 
-## 不要做
+**C. 不要做的事**
 
-- 不要调用 `multimedia/log` 之类的接口去构造上报
-- 不要试图绕过验证码/风控
-- 不要把 `~/.cxstudy-toolkit/cookies.json` 的内容打印到对话或日志里
-
-## 交付凭据时的措辞
-
-用户可能会问"cookie 存哪了、安全吗"。回答要点：
-
-- 存在 `~/.cxstudy-toolkit/cookies.json`，权限 600
-- 这个文件等同于账号，不要提交、不要外发
-- 仓库有 `npm run scan` 做泄露扫描
+- 不要用 CLI 播放然后告诉用户"进度会涨"——不会
+- 不要构造 `multimedia/log` 上报
+- 不要把 `~/.cxstudy-toolkit/cookies.json` 内容打印到对话
