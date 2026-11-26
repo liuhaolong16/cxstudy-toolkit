@@ -58,17 +58,43 @@
     }
   }
 
+  /**
+   * 找「主播放器」。
+   *
+   * 踩过的坑：页面上可能同时存在多个 <video>（预加载壳、广告、隐藏元素），
+   * 取第一个会拿到错的那个——表现为浮窗进度和播放器显示对不上（81 vs 737）。
+   *
+   * 策略：收集所有带 src 的 video，按 duration 从大到小排，取第一个。
+   * 主视频通常几十分钟；壳子往往是 NaN 或极短。
+   */
   function findAnyVideo() {
-    let found = null;
+    const candidates = [];
     eachDoc((doc) => {
-      if (found) return;
       let nodes;
       try { nodes = doc.querySelectorAll('video'); } catch (e) { return; }
       for (const v of nodes) {
-        if (v.currentSrc || v.src) { found = v; return; }
+        if (!(v.currentSrc || v.src)) continue;
+        const d = Number.isFinite(v.duration) ? v.duration : 0;
+        candidates.push({ v, d });
       }
     }, document, 0);
-    return found;
+    if (!candidates.length) return null;
+    candidates.sort((a, b) => b.d - a.d);
+    return candidates[0].v;
+  }
+
+  /** 静音页面上所有 video（不管是不是主播放器，都不能出声） */
+  function muteAll() {
+    eachDoc((doc) => {
+      let nodes;
+      try { nodes = doc.querySelectorAll('video, audio'); } catch (e) { return; }
+      for (const el of nodes) {
+        try {
+          if (!el.muted) el.muted = true;
+          if (el.volume !== 0) el.volume = 0;
+        } catch (e) {}
+      }
+    }, document, 0);
   }
 
   function findNextButton() {
@@ -241,6 +267,7 @@
 
     if (v) {
       noVideoSince = 0;
+      muteAll();
       applyMute(v);
 
       if (v.ended) {
