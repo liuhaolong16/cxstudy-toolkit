@@ -43,6 +43,25 @@ https://www.google.com             → fetch failed
 
 所以这个项目自带一个**最小 MV3 扩展**，用「开发者模式 → 加载未打包的扩展程序」安装，**全程不需要网络**。
 
+## 一条必须遵守的路径纪律
+
+**不要用直链打开视频页。**
+
+```
+❌ 错：https://mooc1.chaoxing.com/mooc-ans/knowledge/cards?clazzid=...&knowledgeid=...
+✅ 对：从 https://mooc2-ans.chaoxing.com/mooc2-ans/mycourse/studentcourse?... 章节列表里点进去
+```
+
+点进去后地址会变成：
+
+```
+https://mooc1.chaoxing.com/mycourse/studentstudy?chapterId=...&courseId=...&clazzid=...&cpi=...&enc=<32位十六进制>&mooc2=1&...
+```
+
+**关键在那个 `enc`**。直链绕过了 `studentstudy` 这一层，缺少 enc 校验的上下文，平台把这种播放当成“非正常学习”，播再久也不记账。
+
+这也是为什么本工具的 CLI（`cxstudy play`）永远不记账：它用的就是 cards 直链。
+
 ## 扩展怎么工作
 
 ```
