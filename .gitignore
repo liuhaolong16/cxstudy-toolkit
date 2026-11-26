@@ -26,6 +26,9 @@ dist/
 coverage/
 .tmp/
 *.tmp
+*.tgz
+*.tar.gz
+npm-debug.log*
 
 # === 编辑器/系统 ===
 .DS_Store
