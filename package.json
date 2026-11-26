@@ -1,0 +1,44 @@
+{
+  "name": "cxstudy-toolkit",
+  "version": "0.1.0",
+  "description": "超星学习通工具包：课程/章节读取、后台静默播放、MCP server。不伪造任何学习记录。",
+  "type": "module",
+  "bin": {
+    "cxstudy": "./src/cli.mjs"
+  },
+  "exports": {
+    ".": "./src/index.mjs",
+    "./mcp": "./mcp/server.mjs"
+  },
+  "files": [
+    "src",
+    "mcp",
+    "dsh",
+    "docs",
+    "README.md",
+    "DISCLAIMER.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "test": "node --test test/",
+    "check": "node src/cli.mjs check",
+    "scan": "node scripts/scan-secrets.mjs",
+    "mcp": "node mcp/server.mjs"
+  },
+  "keywords": [
+    "chaoxing",
+    "xuexitong",
+    "mcp",
+    "automation",
+    "headless",
+    "education"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/liuhaolong16/cxstudy-toolkit.git"
+  }
+}

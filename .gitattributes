@@ -1,0 +1,14 @@
+# 统一换行，避免 Windows/macOS/Linux 混用导致全文件 diff
+* text=auto eol=lf
+
+# Windows 脚本需要 CRLF 才能在 cmd 里正常执行
+*.bat  text eol=crlf
+*.cmd  text eol=crlf
+*.ps1  text eol=crlf
+
+# 二进制
+*.png  binary
+*.jpg  binary
+*.gif  binary
+*.ico  binary
+*.zip  binary

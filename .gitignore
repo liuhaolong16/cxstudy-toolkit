@@ -1,0 +1,45 @@
+# === 凭据：绝不入库 ===
+cookies.json
+cookies.txt
+cookies-*.json
+*.cookie
+*.key
+*.key.b64
+aes.key.b64
+Cookies
+Cookies-journal
+Cookies.snapshot.db
+browser-flush.json
+session.json
+.env
+.env.*
+
+# === 运行期状态 ===
+played-*.json
+*.state.json
+logs/
+*.log
+
+# === 依赖与构建 ===
+node_modules/
+dist/
+coverage/
+.tmp/
+*.tmp
+
+# === 编辑器/系统 ===
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# === 本地抓取产物（逆向过程生成，不入库） ===
+*.har
+rendered-*.html
+course-page.html
+courses-page.html
+stucoursemiddle.html
+files.json
+scan-result.json
+api-contracts.json
