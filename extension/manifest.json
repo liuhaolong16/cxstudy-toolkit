@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "超星自动连播",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "自动 2 倍速静音播放学习通视频，播完自动下一节，遇文档/练习自动跳过",
   "content_scripts": [
     {

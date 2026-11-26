@@ -80,7 +80,13 @@
     }, document, 0);
     if (!candidates.length) return null;
     candidates.sort((a, b) => b.d - a.d);
-    return candidates[0].v;
+    const best = candidates[0].v;
+    // 把诊断信息挂在元素上，供浮窗显示：页面上一共有几个 video、各自时长
+    try {
+      best.__cxCandidates = candidates.length;
+      best.__cxAllDur = candidates.map((c) => (c.d ? Math.round(c.d) : '?')).join(',');
+    } catch (e) {}
+    return best;
   }
 
   /** 静音页面上所有 video（不管是不是主播放器，都不能出声） */
@@ -279,7 +285,11 @@
       endedAt = 0;
       const cur = Math.round(v.currentTime);
       const dur = Number.isFinite(v.duration) ? Math.round(v.duration) : '?';
-      setStatus(`${cur}/${dur} · ${CFG.rate}x · 静音`);
+      // 诊断后缀：[页面video数:各自时长] —— 选错元素时一眼能看出来
+      const diag = v.__cxCandidates && v.__cxCandidates > 1
+        ? ` · [${v.__cxCandidates}个:${v.__cxAllDur}]`
+        : '';
+      setStatus(`${cur}/${dur} · ${CFG.rate}x · 静音${diag}`);
       return;
     }
 
