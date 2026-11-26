@@ -1,0 +1,19 @@
+{
+  "manifest_version": 3,
+  "name": "超星自动连播",
+  "version": "0.1.0",
+  "description": "自动 2 倍速静音播放学习通视频，播完自动下一节，遇文档/练习自动跳过",
+  "content_scripts": [
+    {
+      "matches": [
+        "*://mooc1.chaoxing.com/mycourse/studentstudy*",
+        "*://mooc1.chaoxing.com/mooc-ans/knowledge/cards*",
+        "*://mooc2-ans.chaoxing.com/mooc2-ans/mycourse/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_idle",
+      "all_frames": true
+    }
+  ],
+  "permissions": []
+}
