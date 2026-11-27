@@ -64,6 +64,7 @@ const USAGE = `
       --today / --tomorrow                今天/明天上什么课 + 空闲时段
       --alarm <分钟> / --no-alarm          提醒提前量，默认 20 分钟
   cxa plan [--days 14]                    时间规划：未来 N 天的课 + 考试 + 空闲
+  cxa brief [--days 7]                    生成一段 Markdown 简报，粘给任何 AI（豆包/千问/WorkBuddy）
   cxa materials --course <名>              课程资料区
       --find <关键词>                      递归搜（配合 --download 一起下载）
       --download <目录>
@@ -428,6 +429,117 @@ async function cmdPlan() {
   return 0;
 }
 
+/**
+ * 生成一段 Markdown 简报，供直接粘给任何 AI 客户端（豆包/千问/WorkBuddy/DSH…）。
+ *
+ * 为什么需要这个而不是只做 .ics：
+ *   手机端的聊天 AI 读不到你电脑上的文件，也不能按时间主动推消息。
+ *   但把这段文本粘过去，它就能做复习规划、算时间、答疑。
+ *   数据在电脑、AI 在手机、用文本搭桥 —— 这是双端互通真正落地的形态。
+ *
+ * 输出刻意是 Markdown 而不是表格：AI 和人都好读，粘进聊天框不会散架。
+ */
+async function cmdBrief() {
+  const days = num('days', 7);
+
+  const r = await fetchSchedule(request);
+  if (!r.ok) {
+    log(`✖ 读取课表失败：${r.reason}`);
+    return 1;
+  }
+  const { meta, lessons } = r;
+  const occ = expandOccurrences(meta, lessons);
+
+  const ex = await pendingExams();
+  const exams = ex.ok ? ex.exams : [];
+
+  const p = (n) => String(n).padStart(2, '0');
+  const dayNames = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const out = [];
+  const d0 = new Date(today);
+  out.push(`# ${d0.getFullYear()}-${p(d0.getMonth() + 1)}-${p(d0.getDate())} ${dayNames[d0.getDay()]} · 第 ${meta.currentWeek} 周`);
+  out.push('');
+  out.push(`学期：${meta.semesterLabel}　共 ${new Set(lessons.map((l) => l.name)).size} 门课 / ${lessons.length} 个时段`);
+  out.push('');
+
+  // 今天
+  const todayLessons = lessonsOnDate(occ, today).filter((o) => o.startMin != null);
+  out.push('## 今天');
+  if (!todayLessons.length) {
+    out.push('没课。');
+  } else {
+    for (const o of todayLessons) {
+      out.push(
+        `- ${o.lesson.startText}-${o.lesson.endText}　**${o.lesson.name}**　${o.lesson.location}　${o.lesson.teacher}`,
+      );
+    }
+    const locs = [...new Set(todayLessons.map((o) => o.lesson.location).filter(Boolean))];
+    if (locs.length > 1) out.push(`- ⚠ 今天在两个教室：${locs.join(' / ')}，注意换楼`);
+  }
+  out.push('');
+
+  const freeToday = freeSlotsOnDate(occ, today);
+  if (freeToday.length) {
+    const total = freeToday.reduce((s, x) => s + x.minutes, 0);
+    out.push(`空闲：${freeToday.map((s) => `${s.startText}-${s.endText}`).join(' · ')}（合计约 ${(total / 60).toFixed(1)} 小时）`);
+    out.push('');
+  }
+
+  // 未来 N 天（跳过今天）
+  out.push(`## 未来 ${days} 天`);
+  let any = false;
+  for (let i = 1; i < days; i++) {
+    const d = new Date(today);
+    d.setDate(d.getDate() + i);
+    const ls = lessonsOnDate(occ, d).filter((o) => o.startMin != null);
+    const dayExams = exams.filter(
+      (e) => e.start && e.start.getFullYear() === d.getFullYear() && e.start.getMonth() === d.getMonth() && e.start.getDate() === d.getDate(),
+    );
+    if (!ls.length && !dayExams.length) continue;
+    any = true;
+
+    out.push('');
+    out.push(`**${p(d.getMonth() + 1)}-${p(d.getDate())} ${dayNames[d.getDay()]}**`);
+    for (const e of dayExams) {
+      out.push(`- 🔴 考试 ${p(e.start.getHours())}:${p(e.start.getMinutes())}　${e.name}（${e.durationMin || '?'} 分钟）`);
+    }
+    for (const o of ls) {
+      out.push(`- ${o.lesson.startText}-${o.lesson.endText}　${o.lesson.name}　${o.lesson.location}`);
+    }
+  }
+  if (!any) out.push('没有课也没有考试。');
+  out.push('');
+
+  // 考试倒计时
+  if (exams.length) {
+    out.push('## 考试倒计时');
+    for (const e of exams.slice(0, 10)) {
+      if (!e.start) continue;
+      const d = Math.ceil((new Date(e.start.getFullYear(), e.start.getMonth(), e.start.getDate()) - today) / 86400000);
+      out.push(
+        `- ${d === 0 ? '今天' : d > 0 ? `还有 ${d} 天` : `已过 ${-d} 天`}　${p(e.start.getMonth() + 1)}-${p(e.start.getDate())} ${p(e.start.getHours())}:${p(e.start.getMinutes())}　${e.name}`,
+      );
+    }
+    out.push('');
+  }
+
+  const text = out.join('\n');
+
+  /**
+   * 这里本来有个 --copy（直接进剪贴板）。
+   * 实测不可靠：Windows 上把中文通过 spawnSync 的 stdin 传给 clip.exe 会被按 ANSI
+   * 截断（只进去 12 个字符）；改用 powershell Set-Clipboard + [Console]::In.ReadToEnd()
+   * 同样失败（剪贴板里留着旧内容，长度对不上）。
+   * 删掉而不是留着 —— 一个"有时能复制"的开关比没有更糟，用户会以为内容在里面然后粘错。
+   * 正文照常打到 stdout，选中复制即可。
+   */
+  log(text);
+  return 0;
+}
+
 async function cmdMaterials() {
   const rc = await resolveCourseArg();
   if (!rc.ok) {
@@ -700,6 +812,8 @@ async function main() {
       return cmdSchedule();
     case 'plan':
       return cmdPlan();
+    case 'brief':
+      return cmdBrief();
     case 'play':
       return cmdPlay();
     case 'check':
