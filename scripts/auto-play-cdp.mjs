@@ -64,6 +64,10 @@ const STALL_PROGRESS_SEC = num('stall-progress', 60);
 const CAPTCHA_MAX_TRIES = num('captcha-tries', 2);
 /** 是否允许 OCR 自动解验证码（默认开；--no-ocr 可关） */
 const CAPTCHA_OCR = !has('no-ocr');
+/** 等 AI 答复的秒数（--ai-wait） */
+const AI_WAIT_MS = num('ai-wait', 120) * 1000;
+/** 是否启用 AI 求助（--no-ai 可关） */
+const AI_HELP = !has('no-ai');
 
 if (!COURSE || !CLAZZ) {
   console.error('需要 --course 和 --clazz');
@@ -286,7 +290,7 @@ async function detectChallenge() {
  * 边界说明：这是用户明确选择的行为（OCR + 严格限次）。不联网、不调用付费模型、
  * 不反复重试——调用方负责限次，失败就交还给人。
  */
-async function solveCaptchaOnce() {
+async function solveCaptchaOnce(presetText) {
   // 1) 定位验证码图片
   const info = await evaluateJson(`JSON.stringify((function(){
     var sels = [
@@ -333,21 +337,30 @@ async function solveCaptchaOnce() {
     return { ok: false, reason: '截图失败: ' + e.message };
   }
 
-  // 3) 本地 OCR（Windows.Media.Ocr，离线）
-  let raw = '';
-  try {
-    raw = execFileSync('powershell', [
-      '-STA', '-NoProfile', '-ExecutionPolicy', 'Bypass',
-      '-File', path.join(ROOT, 'scripts', 'ocr.ps1'),
-      '-ImagePath', imgPath,
-    ], { encoding: 'utf8', timeout: 60_000 }).trim();
-  } catch (e) {
-    return { ok: false, reason: 'OCR 调用失败: ' + e.message, img: imgPath };
-  }
+  // 3) 取答案：优先用外部传入的（AI 读图的结果），否则本地 OCR
+  let cleaned;
+  if (presetText) {
+    cleaned = String(presetText).replace(/[^a-zA-Z0-9]/g, '');
+    log(`  使用 AI 传入的答案（跳过本地 OCR）：${JSON.stringify(cleaned)}`);
+    if (cleaned.length < 3 || cleaned.length > 10) {
+      return { ok: false, reason: `传入答案长度不合法（${cleaned.length}）`, text: cleaned, img: imgPath };
+    }
+  } else {
+    let raw = '';
+    try {
+      raw = execFileSync('powershell', [
+        '-STA', '-NoProfile', '-ExecutionPolicy', 'Bypass',
+        '-File', path.join(ROOT, 'scripts', 'ocr.ps1'),
+        '-ImagePath', imgPath,
+      ], { encoding: 'utf8', timeout: 60_000 }).trim();
+    } catch (e) {
+      return { ok: false, reason: 'OCR 调用失败: ' + e.message, img: imgPath };
+    }
 
-  const cleaned = raw.replace(/[^a-zA-Z0-9]/g, '');
-  if (cleaned.length < 3 || cleaned.length > 10) {
-    return { ok: false, reason: `OCR 结果不可用（清洗后长度 ${cleaned.length}）`, raw, img: imgPath };
+    cleaned = raw.replace(/[^a-zA-Z0-9]/g, '');
+    if (cleaned.length < 3 || cleaned.length > 10) {
+      return { ok: false, reason: `OCR 结果不可用（清洗后长度 ${cleaned.length}）`, raw, img: imgPath };
+    }
   }
 
   // 4) 填入输入框
@@ -393,6 +406,84 @@ async function solveCaptchaOnce() {
 
   await sleep(3000);
   return { ok: true, text: cleaned, img: imgPath };
+}
+
+/**
+ * 第 2 级：把验证码截图交出去给 AI 客户端读。
+ *
+ * 为什么用文件协议而不是 MCP/HTTP：
+ *   本项目要开源分发，用户的 AI 客户端各不相同（DSH / WorkBuddy / Claude Code /
+ *   Codex / 什么都没有）。MCP 只有部分客户端支持，HTTP 要起进程占端口。
+ *   文件系统是最低公约数：任何语言、任何客户端、任何 AI 都能读写。
+ *
+ * 协议见 docs/CAPTCHA-AI-HELP.md：
+ *   .captcha-tmp/HELP.json     脚本写（含 id / 截图路径 / 页面 URL）
+ *   .captcha-tmp/SOLUTION.json AI 写（含 id / text / by）
+ */
+async function askAiForCaptcha(currentUrl) {
+  const tmpDir = path.join(ROOT, '.captcha-tmp');
+  const helpPath = path.join(tmpDir, 'HELP.json');
+  const solPath = path.join(tmpDir, 'SOLUTION.json');
+  const imgPath = path.join(tmpDir, 'latest.png');
+
+  if (!fs.existsSync(imgPath)) {
+    log('  ✗ 没有可用的验证码截图，跳过 AI 求助');
+    return null;
+  }
+
+  // 先清掉上一轮的答案，避免串台
+  try { if (fs.existsSync(solPath)) fs.unlinkSync(solPath); } catch (e) {}
+
+  const id = `cap-${Date.now()}`;
+  const help = {
+    id,
+    image: imgPath,
+    imageAbs: imgPath,
+    url: currentUrl || '',
+    createdAt: new Date().toISOString(),
+    attempt: 1,
+    hint: '图形数字验证码，通常 4-6 位字母数字混合',
+  };
+  try {
+    fs.writeFileSync(helpPath, JSON.stringify(help, null, 2), 'utf8');
+    log(`  📝 已写求助文件：${helpPath}`);
+    log(`  ⏳ 等待 AI 客户端写入 SOLUTION.json（最多 ${AI_WAIT_MS / 1000} 秒）`);
+  } catch (e) {
+    log(`  ✗ 写求助文件失败：${e.message}`);
+    return null;
+  }
+
+  const deadline = Date.now() + AI_WAIT_MS;
+  let lastNotice = 0;
+
+  while (Date.now() < deadline) {
+    await sleep(2000);
+    // 保持日志活跃，防止 watchdog 按 mtime 误判卡死
+    if (Date.now() - lastNotice > 20_000) {
+      lastNotice = Date.now();
+      log(`   仍在等 AI……（剩余 ${Math.round((deadline - Date.now()) / 1000)} 秒）`);
+    }
+    if (!fs.existsSync(solPath)) continue;
+    try {
+      const sol = JSON.parse(fs.readFileSync(solPath, 'utf8'));
+      if (!sol || sol.id !== id) continue;
+      const cleaned = String(sol.text || '').replace(/[^a-zA-Z0-9]/g, '');
+      if (cleaned.length < 3 || cleaned.length > 10) {
+        log(`  ✗ AI 答案无效（清洗后长度 ${cleaned.length}）：${JSON.stringify(sol.text)}`);
+        continue;
+      }
+      log(`  ✅ 收到 AI 答案：${JSON.stringify(cleaned)}（来自 ${sol.by || 'unknown'}）`);
+      try { fs.unlinkSync(solPath); } catch (e) {}
+      try { fs.unlinkSync(helpPath); } catch (e) {}
+      return cleaned;
+    } catch (e) {
+      // 文件正在被写，下一轮再读
+    }
+  }
+
+  log('  ⏱ AI 未在时限内响应');
+  try { fs.unlinkSync(helpPath); } catch (e) {}
+  return null;
 }
 
 const COURSE_LIST_URL = () =>
@@ -546,11 +637,45 @@ async function main() {
           }
           await sleep(2500);
         }
+        /**
+         * 第 2 级：AI 介入。
+         * 通过文件协议把截图交出去（见 docs/CAPTCHA-AI-HELP.md），
+         * 任何具备视觉能力的客户端都能接（DSH / WorkBuddy / Claude Code / 自建 API）。
+         */
+        if (!solved && AI_HELP) {
+          log(`🤖 第 2 级：把截图交给 AI 客户端（文件协议）`);
+          let aiText = null;
+          try {
+            aiText = await askAiForCaptcha(challenge.url);
+          } catch (e) {
+            log(`  AI 求助流程出错：${e.message}`);
+          }
+          if (aiText) {
+            log(`  拿 AI 答案重试提交`);
+            let r2 = null;
+            try {
+              r2 = await solveCaptchaOnce(aiText);
+            } catch (e) {
+              r2 = { ok: false, reason: e.message };
+            }
+            if (r2 && r2.ok) {
+              await sleep(4000);
+              const after = await detectChallenge();
+              if (after && !after.blocked) {
+                log(`✅ AI 解出的验证码已通过`);
+                solved = true;
+              } else {
+                log(`✗ AI 答案提交后验证码仍在`);
+              }
+            } else {
+              log(`✗ 填入 AI 答案失败：${r2 && r2.reason ? r2.reason : '未知'}`);
+            }
+          }
+        }
+
         if (!solved) {
-          log(`⛔ OCR 已尝试 ${CAPTCHA_MAX_TRIES} 次未通过，不再重试（避免触发风控）`);
-          log(`📷 验证码截图已保存：${path.join(ROOT, '.captcha-tmp', 'latest.png')}`);
-          log(`🤖 下一步：Agent 介入——把这张图读出来，识别数字后用 CDP 填入输入框`);
-          log(`   （人在对话里说一句「验证码卡住了」，Agent 就会读图并填入）`);
+          log(`⛔ 三级都未通过（本地 OCR / AI / 自动化），转人工`);
+          log(`📷 验证码截图：${path.join(ROOT, '.captcha-tmp', 'latest.png')}`);
         }
       }
 
