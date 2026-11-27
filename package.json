@@ -1,9 +1,10 @@
 {
   "name": "cxstudy-toolkit",
-  "version": "0.1.0",
-  "description": "超星学习通工具包：课程/章节读取、后台静默播放、MCP server。不伪造任何学习记录。",
+  "version": "0.2.0",
+  "description": "超星学习通小助手：刷课过任务点、整理课程资料、按考试生成备考档案。不伪造任何学习记录。",
   "type": "module",
   "bin": {
+    "cxa": "./src/cli.mjs",
     "cxstudy": "./src/cli.mjs"
   },
   "exports": {
@@ -34,11 +35,13 @@
     "mcp",
     "automation",
     "headless",
-    "education"
+    "education",
+    "study-assistant",
+    "exam-prep"
   ],
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/liuhaolong16/cxstudy-toolkit.git"
+    "url": "https://github.com/liuhaolong16/chaoxing-assistant.git"
   }
 }

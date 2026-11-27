@@ -1,4 +1,7 @@
-# 超星学习通工具包
+# 超星学习通小助手
+
+> 命令行工具名：**`cxa`**（旧名 `cxstudy` 保留为别名，两者等价）
+> 仓库：`liuhaolong16/chaoxing-assistant`（旧地址 `cxstudy-toolkit` 自动重定向）
 
 > **先看这一条**：**能否让任务点变成「已完成」，取决于跑在哪个浏览器里。**
 > 用本工具的 CLI（headless 或有头）播放，视频会真实播放、心跳会上报，但学习通**不认账**；
@@ -6,24 +9,29 @@
 > 原因与实测证据见 [docs/PROGRESS-FINDINGS.md](docs/PROGRESS-FINDINGS.md)，扩展原理见 [docs/EXTENSION.md](docs/EXTENSION.md)。
 > 本工具**不是刷课器**：视频时长一秒一秒走，不伪造任何上报。使用前请读 [DISCLAIMER.md](DISCLAIMER.md)。
 
-一个零第三方依赖的 Node 工具包，把学习通的「读」能力整理成 CLI、库和 MCP server 三份接口：
+一个零第三方依赖的 Node 工具包，把学习通的读写能力整理成 CLI、库和 MCP server 三份接口：
 
 | 能力 | 说明 |
 |---|---|
 | **读课程** | 课程列表、章节结构、知识点 id、「已完成任务点」进度 |
 | **后台播放** | 无头 Chrome 打开知识点，静音连播视频，题目/文档自动跳过并登记 |
-| **MCP server** | 6 个工具，接入任意 MCP 客户端（Claude / Cursor / DSH 等） |
-| **判据门** | `cxstudy check` 五道门，逐条给红绿与证据 |
+| **课程资料** | 资料区列表、按关键词递归搜索、批量下载到本地 |
+| **考试与课表** | 全校考试安排、课表（可导出 .ics）、通知中心 |
+| **章节测验** | 截图 → AI 读图作答 → 点选 → 暂时保存 / 提交（三模式） |
+| **MCP server** | 接入任意 MCP 客户端（Claude / Cursor / DSH 等） |
+| **判据门** | `cxa check` 五道门，逐条给红绿与证据 |
 
-支持 Windows / macOS / Linux（Chrome 或 Edge 均可）。实际验证环境：Windows 11 + Chrome 157 + Node 22。
+支持 Windows / macOS / Linux（Chrome 或 Edge 均可）。实际验证环境：Windows 11 + Chrome 157/158 + Node 22。
 
 ---
 
 ## 它解决什么问题
 
-- 你有几十门课，不知道哪门差得多 → `cxstudy courses` + `cxstudy chapters`
+- 你有几十门课，不知道哪门差得多 → `cxa courses` + `cxa chapters`
 - 课件要点开一页页找 → 拿到章节结构与知识点 id，可自行批量处理
-- 想把视频挂在后台播放（人不在电脑前）→ `cxstudy play`
+- 老师发的资料散在资料区里 → `cxa materials` / 递归搜关键词 / 批量下载
+- 想知道什么时候考试、还有什么作业没交 → `cxa exams` / `cxa homework`
+- 想把视频挂在后台播放（人不在电脑前）→ `cxa play`
 - 想让自己写的 Agent 直接操作学习通 → MCP server
 
 ## 它**不**做什么
@@ -31,6 +39,8 @@
 - 不调用接口伪造「已完成」状态或学习时长
 - 不绕过验证码、设备指纹、行为风控
 - 不做多账号批处理
+- **不做考试中的实时答题**（那是作弊；考前复习档案才是本工具做的事）
+- 不维护题库服务器、不分发盗版教材
 
 ## 安装
 
@@ -50,19 +60,19 @@ node src/cli.mjs --help
 
 ```bash
 # 1. 登录（会弹一个浏览器窗口，扫码或账号密码都行，登录后自动抓到 cookie）
-cxstudy auth login
+cxa auth login
 
 # 2. 看课程，记下 courseId / classId
-cxstudy courses
+cxa courses
 
 # 3. 看某门课的章节与当前进度
-cxstudy chapters --cid 246180456 --clz 106042289
+cxa chapters --cid 246180456 --clz 106042289
 
 # 4. 先干跑一遍，确认要播哪些
-cxstudy play --cid 246180456 --clz 106042289 --dry-run --limit 3
+cxa play --cid 246180456 --clz 106042289 --dry-run --limit 3
 
 # 5. 真的播（后台，静音，播完自动下一节）
-cxstudy play --cid 246180456 --clz 106042289
+cxa play --cid 246180456 --clz 106042289
 ```
 
 `play` 的完整选项：
@@ -117,7 +127,7 @@ powershell -ExecutionPolicy Bypass -File scripts\install-extension.ps1
 ## MCP 接入
 
 ```bash
-cxstudy mcp        # 以 stdio 方式启动
+cxa mcp        # 以 stdio 方式启动
 ```
 
 在 MCP 客户端里注册：
@@ -165,7 +175,7 @@ await session.close();
 ## 判据门
 
 ```bash
-cxstudy check --cid 246180456 --clz 106042289
+cxa check --cid 246180456 --clz 106042289
 ```
 
 | 门 | 判据 | 说明 |

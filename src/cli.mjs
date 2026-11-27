@@ -46,17 +46,19 @@ function fail(message, code = 1) {
 }
 
 const USAGE = `
-超星学习通工具包 (cxstudy-toolkit)
+超星学习通小助手 (chaoxing-assistant)
 
 用法：
-  cxstudy auth login                      打开浏览器手动登录并保存 cookie
-  cxstudy auth status                     检查当前会话是否可用
-  cxstudy auth import <文件>               从浏览器导出的 cookie 文件导入
-  cxstudy courses                          列出课程
-  cxstudy chapters --cid <id> --clz <id>   列出章节与知识点（含进度）
-  cxstudy play --cid <id> --clz <id>       后台连播视频（题目/文档跳过）
-  cxstudy check [--cid --clz]              跑判据门
-  cxstudy mcp                              以 MCP server 方式运行（stdio）
+  cxa auth login                      打开浏览器手动登录并保存 cookie
+  cxa auth status                     检查当前会话是否可用
+  cxa auth import <文件>               从浏览器导出的 cookie 文件导入
+
+  cxa 是主命令；cxstudy 是等价的旧别名，两者可互换。
+  cxa courses                          列出课程
+  cxa chapters --cid <id> --clz <id>   列出章节与知识点（含进度）
+  cxa play --cid <id> --clz <id>       后台连播视频（题目/文档跳过）
+  cxa check [--cid --clz]              跑判据门
+  cxa mcp                              以 MCP server 方式运行（stdio）
 
 play 选项：
   --kid <id>        只播单个知识点

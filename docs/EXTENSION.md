@@ -8,8 +8,8 @@
 
 | 方案 | 能不能让任务点变绿 | 原因 |
 |---|---|---|
-| `cxstudy play`（headless） | ❌ | 视频真播、心跳真发，但平台判定这不是"真人学习" |
-| `cxstudy play --headed` | ❌ | 有窗口也没用——浏览器是全新 profile，缺课程级 cookie |
+| `cxa play`（headless） | ❌ | 视频真播、心跳真发，但平台判定这不是"真人学习" |
+| `cxa play --headed` | ❌ | 有窗口也没用——浏览器是全新 profile，缺课程级 cookie |
 | CDP `Page.addScriptToEvaluateOnNewDocument` | ❌ | 能持久注入，但同样缺课程级 cookie；且 DSH 内置浏览器只开 `remote-debugging-pipe`，外部连不上 |
 | **扩展 + 你已登录的浏览器** | ✅ | 脚本在你自己的浏览器里跑，带完整 cookie 与设备环境 |
 
@@ -60,7 +60,7 @@ https://mooc1.chaoxing.com/mycourse/studentstudy?chapterId=...&courseId=...&claz
 
 **关键在那个 `enc`**。直链绕过了 `studentstudy` 这一层，缺少 enc 校验的上下文，平台把这种播放当成“非正常学习”，播再久也不记账。
 
-这也是为什么本工具的 CLI（`cxstudy play`）永远不记账：它用的就是 cards 直链。
+这也是为什么本工具的 CLI（`cxa play`）永远不记账：它用的就是 cards 直链。
 
 ## 已知坑：页面上有多个 `<video>`
 

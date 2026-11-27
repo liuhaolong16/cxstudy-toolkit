@@ -9,7 +9,7 @@ description: 用 cxstudy-toolkit 读取学习通课程/章节/进度、后台静
 
 **能否让任务点变成「已完成」，取决于跑在哪个浏览器里。**
 
-- 用 CLI（`cxstudy play`，headless 或有头）播放：视频真播、心跳真发，但**平台不认账**，任务点不变绿。
+- 用 CLI（`cxa play`，headless 或有头）播放：视频真播、心跳真发，但**平台不认账**，任务点不变绿。
 - 用 `extension/` 里的浏览器扩展，在**用户自己登录过的浏览器**里播放：**会被记账**。
 
 原因是浏览器是否持有平台下发的**课程级 cookie**（`<courseid>enc` / `ut` / `cpi` / `t`）。CLI 导出的 19 条账号级 cookie 覆盖不到这一层。
@@ -28,9 +28,9 @@ description: 用 cxstudy-toolkit 读取学习通课程/章节/进度、后台静
 **A. 只查数据（CLI）**
 
 ```bash
-cxstudy auth status
-cxstudy courses
-cxstudy chapters --cid <id> --clz <id>
+cxa auth status
+cxa courses
+cxa chapters --cid <id> --clz <id>
 ```
 
 **B. 要记账（扩展）**

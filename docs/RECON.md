@@ -60,7 +60,7 @@ Chromium 的 Cookies 库是 AES-256-GCM 加密 + DPAPI 包 key。
 
 1. **客户端在运行**：Cookies 库被独占锁（`FileShare.None`，非管理员也无 VSS）。
    需要守护式轮询：客户端一退出就立刻复制并解析。
-2. **不依赖客户端**（推荐，本项目默认走这条）：`cxstudy auth login` 起有头浏览器，
+2. **不依赖客户端**（推荐，本项目默认走这条）：`cxa auth login` 起有头浏览器，
    用户手动登录，从 `Network.getAllCookies` 读。跨平台、不需要客户端、不需要管理员。
 
 ## enc 双轨
