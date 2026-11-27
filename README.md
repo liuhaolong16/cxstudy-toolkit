@@ -275,6 +275,17 @@ btnBlueSubmit()   // 第一步：只弹确认框「您还有未完成的单选�
 
 只点第一步，页面看着像提交了，实际任务点一点没变。
 
+### 谁给答案？任何 AI 都能接
+
+脚本本身**不调用任何模型**，只做三件事：截图 → 写 `HELP.json` → 读 `ANSWERS.json`。
+
+所以**豆包、WorkBuddy、DeepSeek Harness、Claude Code、Codex、自建 API、纯人工，都能接**——只要它
+能读 PNG、能写 JSON。协议与五种接入方式见 [docs/QUIZ-AI-HELP.md](docs/QUIZ-AI-HELP.md)，
+现成模板见 [workbuddy/quiz-helper.template.mjs](workbuddy/quiz-helper.template.mjs)。
+
+**豆包/火山方舟**直接可用：它们的 `/chat/completions` 支持 `image_url` + base64，把模板里的
+`recognizeAnswers()` 填上就行。
+
 ## 验证码怎么办（三级降级）
 
 刷课途中会撞上**图形数字验证码**。硬撞风控只会升级惩罚（图形码 → 滑块 → 封号），所以本项目采用三级降级：

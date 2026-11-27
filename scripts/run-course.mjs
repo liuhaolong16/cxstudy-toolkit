@@ -75,6 +75,9 @@ if (!QUIZ_MODE) {
   console.error(`--quiz-mode 只能是 submit / save / skip，收到：${QUIZ_MODE_RAW}`);
   process.exit(2);
 }
+
+/** 只处理指定章节（knowledgeId），便于单点验证与重跑 */
+const ONLY_CHAPTER = arg('only-chapter', null);
 const WORK_ROOT = arg('work-root', path.join(ROOT, '.cxstudy-questions'));
 
 if (!COURSE || !CLAZZ) {
@@ -274,6 +277,7 @@ async function main() {
   for (let i = 0; i < chapters.length; i++) {
     const ch = chapters[i];
     const kid = ch.knowledgeId;
+    if (ONLY_CHAPTER && String(kid) !== String(ONLY_CHAPTER)) continue;
     const tag = `[${i + 1}/${chapters.length}] ${kid}`;
 
     let jobsData;
