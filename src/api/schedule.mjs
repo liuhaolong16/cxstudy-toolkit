@@ -182,9 +182,68 @@ export function expandOccurrences(meta, lessons, opts = {}) {
   return out;
 }
 
-/** 本地日期+分钟数 → iCalendar 的 UTC 时间戳（20261124T000000Z） */
-function toICSDateTime(date, minutes) {
-  const d = new Date(date);
+/**
+ * 给出某一天对应的「第几周 + 周几」。
+ *
+ * 用于 `cxa schedule --today`：先知道今天是第几周周几，才能从展开结果里筛出今天。
+ *
+ * @param {Date} date
+ * @param {Date} firstWeekDate 第一周周一 0 点
+ * @returns {{week:number, dayOfWeek:number} | null}
+ */
+export function weekOfDate(date, firstWeekDate) {
+  if (!(date instanceof Date) || !(firstWeekDate instanceof Date)) return null;
+  const d0 = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const f0 = new Date(firstWeekDate.getFullYear(), firstWeekDate.getMonth(), firstWeekDate.getDate());
+  const days = Math.round((d0.getTime() - f0.getTime()) / 86400000);
+  if (days < 0) return null; // 学期还没开始
+  // JS 的 getDay(): 0=周日。转成 1=周一 … 7=周日
+  const dow = date.getDay() === 0 ? 7 : date.getDay();
+  return { week: Math.floor(days / 7) + 1, dayOfWeek: dow };
+}
+
+/**
+ * 取某一天的课（按开始时间升序）。
+ *
+ * @param {Array} occurrences expandOccurrences 的输出
+ * @param {Date} date
+ */
+export function lessonsOnDate(occurrences, date) {
+  const y = date.getFullYear();
+  const m = date.getMonth();
+  const d = date.getDate();
+  return occurrences
+    .filter((o) => o.date.getFullYear() === y && o.date.getMonth() === m && o.date.getDate() === d)
+    .sort((a, b) => (a.startMin ?? 0) - (b.startMin ?? 0));
+}
+
+/** 一天里的空闲时段（在 [dayStart, dayEnd] 内，扣掉有课的时间） */
+export function freeSlotsOnDate(occurrences, date, opts = {}) {
+  const dayStart = opts.dayStart ?? 8 * 60; // 默认 8:00 起算
+  const dayEnd = opts.dayEnd ?? 22 * 60; // 默认 22:00 截止
+  const minGap = opts.minGap ?? 30; // 小于 30 分钟的空隙不单独列
+
+  const busy = lessonsOnDate(occurrences, date)
+    .filter((o) => o.startMin != null && o.endMin != null)
+    .map((o) => ({ start: o.startMin, end: o.endMin }))
+    .sort((a, b) => a.start - b.start);
+
+  const slots = [];
+  let cursor = dayStart;
+  for (const b of busy) {
+    if (b.start - cursor >= minGap) slots.push({ start: cursor, end: b.start });
+    cursor = Math.max(cursor, b.end);
+  }
+  if (dayEnd - cursor >= minGap) slots.push({ start: cursor, end: dayEnd });
+
+  const fmt = (min) => `${String(Math.floor(min / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`;
+  return slots.map((s) => ({ ...s, startText: fmt(s.start), endText: fmt(s.end), minutes: s.end - s.start }));
+}
+
+/**
+ * 本地日期+分钟数 → iCalendar 的 UTC 时间戳（20261124T000000Z）
+ */
+function toICSDateTime(date, minutes) {  const d = new Date(date);
   d.setHours(Math.floor(minutes / 60), minutes % 60, 0, 0);
   const p = (n) => String(n).padStart(2, '0');
   return (
@@ -220,11 +279,26 @@ function foldLine(line) {
   return parts.join('\r\n ');
 }
 
+/** 简易稳定哈希，用于 courseId 缺失时构造 UID。不用 Buffer（要能在非 Node 环境跑） */
+function simpleHash(s) {
+  let h = 0;
+  const str = String(s || '');
+  for (let i = 0; i < str.length; i++) {
+    h = (h * 31 + str.charCodeAt(i)) | 0;
+  }
+  return Math.abs(h).toString(36);
+}
+
 /**
  * 生成 .ics 日历文本。
  *
+ * 每个事件带一个 VALARM（提前提醒）。为什么必须加：
+ * 没有 VALARM 的 .ics 导入手机日历后**不会响**，只是一个静默日程。
+ * 「提醒上课时间与地点」这个需求，一半价值在这个报警上。
+ *
  * @param {Array} occurrences expandOccurrences 的输出
- * @param {{name?:string}} [opts]
+ * @param {{name?:string, alarmMinutes?:number, noAlarm?:boolean}} [opts]
+ *   alarmMinutes 默认 20（大学课间换楼常常要走 10 分钟）；传 0 或 noAlarm 则不加提醒
  * @returns {string}
  */
 export function toICS(occurrences, opts = {}) {
@@ -233,6 +307,8 @@ export function toICS(occurrences, opts = {}) {
   const stamp =
     `${now.getUTCFullYear()}${p(now.getUTCMonth() + 1)}${p(now.getUTCDate())}` +
     `T${p(now.getUTCHours())}${p(now.getUTCMinutes())}${p(now.getUTCSeconds())}Z`;
+
+  const alarmMinutes = opts.noAlarm ? 0 : opts.alarmMinutes == null ? 20 : Number(opts.alarmMinutes);
 
   const lines = [
     'BEGIN:VCALENDAR',
@@ -245,17 +321,34 @@ export function toICS(occurrences, opts = {}) {
 
   for (const o of occurrences) {
     if (o.startMin == null || o.endMin == null) continue; // 没有节次时间的不进日历（不编时刻）
+    /**
+     * UID 必须全局唯一，否则日历客户端会把后一条当成"同一条事件的更新"覆盖掉前一条。
+     * 实测：课表里有几门课的 courseId=0（不是超星平台开的课），只用 courseId 会造成
+     * 同一周同一节的不同课撞 UID。所以缺失时用课程名做后备。
+     */
+    const uidBase = o.lesson.courseId || `n${simpleHash(o.lesson.name)}`;
     lines.push(
       'BEGIN:VEVENT',
-      `UID:${esc(`cx-${o.lesson.courseId}-w${o.week}-d${o.lesson.dayOfWeek}-s${o.lesson.beginNumber}`)}@chaoxing-assistant`,
+      `UID:${esc(`cx-${uidBase}-w${o.week}-d${o.lesson.dayOfWeek}-s${o.lesson.beginNumber}`)}@chaoxing-assistant`,
       `DTSTAMP:${stamp}`,
       `DTSTART:${toICSDateTime(o.date, o.startMin)}`,
       `DTEND:${toICSDateTime(o.date, o.endMin)}`,
       `SUMMARY:${esc(o.lesson.name)}`,
       `LOCATION:${esc(o.lesson.location)}`,
       `DESCRIPTION:${esc([o.lesson.teacher, o.lesson.className, `第${o.week}周 第${o.lesson.beginNumber}-${o.lesson.beginNumber + o.lesson.length - 1}节`].filter(Boolean).join(' / '))}`,
-      'END:VEVENT',
     );
+
+    if (alarmMinutes > 0) {
+      lines.push(
+        'BEGIN:VALARM',
+        'ACTION:DISPLAY',
+        `DESCRIPTION:${esc(`${o.lesson.name} ${o.lesson.startText || ''} 在 ${o.lesson.location || '（地点未填）'}`)}`,
+        `TRIGGER:-PT${alarmMinutes}M`,
+        'END:VALARM',
+      );
+    }
+
+    lines.push('END:VEVENT');
   }
 
   lines.push('END:VCALENDAR');

@@ -17,7 +17,7 @@ import { listChapters } from './api/chapters.mjs';
 import { request, ENDPOINTS } from './api/client.mjs';
 import { listExams, pendingExams } from './api/exams.mjs';
 import { listMaterials, findMaterials, downloadMaterial } from './api/materials.mjs';
-import { fetchSchedule, expandOccurrences, toICS, formatWeek } from './api/schedule.mjs';
+import { fetchSchedule, expandOccurrences, toICS, formatWeek, weekOfDate, lessonsOnDate, freeSlotsOnDate } from './api/schedule.mjs';
 import { ChromeSession } from './browser/cdp.mjs';
 import { playKnowledge, inspectKnowledge } from './browser/player.mjs';
 import { runGates, summarize } from './gates/index.mjs';
@@ -60,7 +60,10 @@ const USAGE = `
   cxa courses                             列出课程
   cxa chapters --cid <id> --clz <id>       列出章节与知识点（含进度）
   cxa exams [--all] [--json]               未结束的考试安排（--all 看全部历史）
-  cxa schedule [--week n] [--ics <目录>]   课表；--ics 导出全学期 .ics 给日历导入
+  cxa schedule [--week n] [--ics <目录>]   课表；--ics 导出全学期 .ics 给日历导入（带提前提醒）
+      --today / --tomorrow                今天/明天上什么课 + 空闲时段
+      --alarm <分钟> / --no-alarm          提醒提前量，默认 20 分钟
+  cxa plan [--days 14]                    时间规划：未来 N 天的课 + 考试 + 空闲
   cxa materials --course <名>              课程资料区
       --find <关键词>                      递归搜（配合 --download 一起下载）
       --download <目录>
@@ -246,18 +249,63 @@ async function cmdSchedule() {
   }
 
   const { meta, lessons } = r;
-  const targetWeek = week || meta.currentWeek;
+  const occ = expandOccurrences(meta, lessons);
 
   if (has('json')) {
-    const occ = expandOccurrences(meta, lessons);
-    log(JSON.stringify({ ok: true, meta: { ...meta, firstWeekDate: meta.firstWeekDate?.toISOString() }, lessons, occurrences: occ.length }, null, 2));
+    log(
+      JSON.stringify(
+        { ok: true, meta: { ...meta, firstWeekDate: meta.firstWeekDate?.toISOString() }, lessons, occurrences: occ.length },
+        null,
+        2,
+      ),
+    );
     return 0;
   }
 
+  // ---- --today / --tomorrow：今天/明天上什么课 + 空闲时段 ----
+  if (has('today') || has('tomorrow')) {
+    const when = new Date();
+    const isTomorrow = has('tomorrow');
+    if (isTomorrow) when.setDate(when.getDate() + 1);
+
+    const p = (n) => String(n).padStart(2, '0');
+    const dateText = `${when.getFullYear()}-${p(when.getMonth() + 1)}-${p(when.getDate())}`;
+    const dayNames = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+    const wd = weekOfDate(when, meta.firstWeekDate);
+
+    log(`${isTomorrow ? '明天' : '今天'} ${dateText} ${dayNames[when.getDay()]}` + (wd ? `（第 ${wd.week} 周）` : '（学期外）'));
+    log('-'.repeat(80));
+
+    const todays = lessonsOnDate(occ, when).filter((o) => o.startMin != null);
+    if (!todays.length) {
+      log('  没有课。');
+    } else {
+      for (const o of todays) {
+        const secRange = `第${o.lesson.beginNumber}-${o.lesson.beginNumber + o.lesson.length - 1}节`;
+        log(`  ${o.lesson.startText}-${o.lesson.endText}  ${secRange.padEnd(9)} ${o.lesson.name}`);
+        log(`  ${' '.repeat(13)}  ${o.lesson.location}  ${o.lesson.teacher}`);
+      }
+      // 相邻课之间提醒换楼
+      const locs = [...new Set(todays.map((o) => o.lesson.location).filter(Boolean))];
+      if (locs.length > 1) {
+        log('');
+        log(`  ⚠ 今天涉及 ${locs.length} 个教室：${locs.join(' / ')}，注意换楼时间`);
+      }
+    }
+
+    const free = freeSlotsOnDate(occ, when);
+    if (free.length) {
+      log('');
+      log('  空闲：' + free.map((s) => `${s.startText}-${s.endText}`).join(' · '));
+    }
+    return 0;
+  }
+
+  // ---- 默认：某周表格 ----
+  const targetWeek = week || meta.currentWeek;
   log(`${meta.userName || ''} ${meta.semesterLabel}  当前第 ${meta.currentWeek} 周`);
   log(`共 ${lessons.length} 节课记录，节次表 ${meta.sectionTimes.length} 节\n`);
 
-  const occ = expandOccurrences(meta, lessons);
   if (targetWeek) {
     const text = formatWeek(occ, { week: targetWeek });
     log(`第 ${targetWeek} 周`);
@@ -265,27 +313,118 @@ async function cmdSchedule() {
     log(text || '（这周没有课）');
   }
 
-  // 导出 .ics
+  // ---- 导出 .ics ----
   const icsDir = arg('ics');
   if (icsDir) {
     const fs = await import('node:fs');
     const path = await import('node:path');
     const name = arg('name', `课程表-${meta.schoolYear || ''}${meta.semester ? 'S' + meta.semester : ''}`.trim());
     const dest = path.join(icsDir, `${name}.ics`);
-    // 默认导出全学期；--from-week/--to-week 可裁剪
     const range = { fromWeek: num('from-week') || undefined, toWeek: num('to-week') || undefined };
     const picked = expandOccurrences(meta, lessons, range);
     const noTime = picked.filter((o) => o.startMin == null).length;
+    // 提醒：默认提前 20 分钟（换楼常常要走 10 分钟）；--no-alarm 关掉，--alarm N 改
+    const alarmMinutes = has('no-alarm') ? 0 : num('alarm', 20);
     fs.mkdirSync(icsDir, { recursive: true });
-    fs.writeFileSync(dest, toICS(picked, { name }), 'utf8');
+    fs.writeFileSync(dest, toICS(picked, { name, alarmMinutes }), 'utf8');
     log('');
     log(`✓ 已导出 ${picked.length} 个事件 → ${dest}`);
     if (noTime) log(`  ⚠ 其中 ${noTime} 个没有节次时间，未写入日历（不编时刻）`);
+    if (alarmMinutes > 0) log(`  每个事件带提前 ${alarmMinutes} 分钟提醒（--no-alarm 可关）`);
     log('  导入方式：手机日历 App 里「添加日历 → 从文件导入」选这个 .ics');
   } else {
     log('');
-    log('提示：加 --ics <目录> 导出全学期日历；--week <n> 看某一周');
+    log('提示：--today / --tomorrow 看今天明天；--ics <目录> 导出日历（带提醒）');
   }
+  return 0;
+}
+
+/**
+ * 时间规划：把「课表 + 考试 + 空闲时段」合成一份，用来安排复习与写作业。
+ *
+ * 只输出**事实**（哪天上什么课、哪天有考试、哪天几段空闲），建议留给使用者或 AI。
+ * 不替人决定"该几点学习"——那取决于很多程序不知道的事。
+ */
+async function cmdPlan() {
+  const days = num('days', 14);
+
+  const r = await fetchSchedule(request);
+  if (!r.ok) {
+    log(`✖ 读取课表失败：${r.reason}`);
+    return 1;
+  }
+  const { meta, lessons } = r;
+  const occ = expandOccurrences(meta, lessons);
+
+  const ex = await pendingExams();
+  const exams = ex.ok ? ex.exams : [];
+
+  const p = (n) => String(n).padStart(2, '0');
+  const dayNames = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  log(`${meta.userName || ''} ${meta.semesterLabel} · 当前第 ${meta.currentWeek} 周`);
+  log(`未来 ${days} 天安排`);
+  log('');
+
+  const busyDays = [];
+  let totalFreeMin = 0;
+
+  for (let i = 0; i < days; i++) {
+    const d = new Date(today);
+    d.setDate(d.getDate() + i);
+    const dateText = `${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+
+    const dayLessons = lessonsOnDate(occ, d).filter((o) => o.startMin != null);
+    const free = freeSlotsOnDate(occ, d);
+    const freeMin = free.reduce((s, x) => s + x.minutes, 0);
+    totalFreeMin += freeMin;
+
+    // 当天有考试吗（按本地日期比对）
+    const dayExams = exams.filter(
+      (e) => e.start && e.start.getFullYear() === d.getFullYear() && e.start.getMonth() === d.getMonth() && e.start.getDate() === d.getDate(),
+    );
+
+    if (!dayLessons.length && !dayExams.length) continue; // 没课没考的空白日略过，免得列表太长
+    busyDays.push(d);
+
+    log(`${i === 0 ? '今天' : i === 1 ? '明天' : dayNames[d.getDay()]} ${dateText}`);
+    for (const e of dayExams) {
+      log(`  ⚠ 考试  ${p(e.start.getHours())}:${p(e.start.getMinutes())}  ${e.name}  （${e.durationMin || '?'} 分钟）`);
+    }
+    for (const o of dayLessons) {
+      log(`  ${o.lesson.startText}-${o.lesson.endText}  ${o.lesson.name}  ${o.lesson.location}`);
+    }
+    if (free.length) log(`  空闲  ${free.map((s) => `${s.startText}-${s.endText}`).join(' · ')}`);
+    log('');
+  }
+
+  if (!busyDays.length) {
+    log('（未来这些天没有课也没有考试）');
+    log('');
+  }
+
+  // 考试倒计时
+  if (exams.length) {
+    log('--- 考试倒计时 ---');
+    for (const e of exams.slice(0, 10)) {
+      if (!e.start) continue;
+      const d = Math.ceil((new Date(e.start.getFullYear(), e.start.getMonth(), e.start.getDate()) - today) / 86400000);
+      const when = d === 0 ? '今天' : d > 0 ? `还有 ${d} 天` : `${-d} 天前`;
+      log(`  ${when.padEnd(10)} ${p(e.start.getMonth() + 1)}-${p(e.start.getDate())}  ${p(e.start.getHours())}:${p(e.start.getMinutes())}  ${e.name}`);
+    }
+    log('');
+  }
+
+  // 空闲汇总（帮助判断"有多少可支配时间"）
+  const freeHours = (totalFreeMin / 60).toFixed(1);
+  log(`--- 汇总 ---`);
+  log(`  有课/有考的日子：${busyDays.length} 天`);
+  log(`  可支配空闲：约 ${freeHours} 小时（按 8:00-22:00 扣掉上课时间算）`);
+  log(`  未结束考试：${exams.length} 场`);
+  log('');
+  log('提示：加 --days 30 看更远；cxa exams 看考试详情；cxa schedule --ics <目录> 导日历（带提醒）');
   return 0;
 }
 
@@ -559,6 +698,8 @@ async function main() {
       return cmdMaterials();
     case 'schedule':
       return cmdSchedule();
+    case 'plan':
+      return cmdPlan();
     case 'play':
       return cmdPlay();
     case 'check':
