@@ -226,6 +226,43 @@ WebAudio 接管: 0 个 gain
 4. 学习通的部分接口有 IP 白名单（如 `specie.chaoxing.com`），本项目不依赖它们。
 5. 播放耗时等于视频总时长，**不存在加速刷完**。
 
+## 验证码怎么办（三级降级）
+
+刷课途中会撞上**图形数字验证码**。硬撞风控只会升级惩罚（图形码 → 滑块 → 封号），所以本项目采用三级降级：
+
+| 级别 | 谁来解 | 说明 |
+|---|---|---|
+| **1** | 本地 OCR | Windows 自带 `Windows.Media.Ocr`，离线、免费、无需下载语言包 |
+| **2** | **你的 AI 客户端** | 通过**文件协议**交接，任何客户端都能接 |
+| **3** | 你 | 手动输入，脚本检测到就继续 |
+
+### 第 2 级为什么用文件协议
+
+本项目要开源分发，**用户的 AI 客户端各不相同**（DeepSeek Harness / WorkBuddy / Claude Code / Codex / 自建 API / 什么都没有）。
+
+所以约定一个与客户端无关的接口 —— 一个目录、两个 JSON：
+
+```
+.captcha-tmp/
+├── latest.png       验证码截图（脚本写）
+├── HELP.json        求助请求（脚本写，AI 读）
+└── SOLUTION.json    AI 的答案（AI 写，脚本读）
+```
+
+**任何能读文件 + 写文件的 AI 都能接入**，不需要 MCP、不需要起服务、不需要联网。
+
+- 完整协议与五种客户端接法：[docs/CAPTCHA-AI-HELP.md](docs/CAPTCHA-AI-HELP.md)
+- 现成模板：[workbuddy/captcha-helper.template.mjs](workbuddy/captcha-helper.template.mjs)（改一个 `recognizeImage` 函数即可）
+
+### 相关参数
+
+```bash
+--captcha-tries 2    # 本地 OCR 最多试几次，默认 2（严格限次，防触发风控）
+--ai-wait 120        # 等 AI 答复的秒数
+--no-ocr             # 跳过 OCR，直接把求助交出去
+--no-ai              # 跳过 AI 介入，OCR 失败直接转人工
+```
+
 ## 操作浏览器的四件套
 
 这个项目在开发过程中沉淀出一套桌面自动化组合：**pwsh + Windows-MCP + dsh-streamvision + CDP**。
