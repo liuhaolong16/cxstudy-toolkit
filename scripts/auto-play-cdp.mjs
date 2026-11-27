@@ -326,9 +326,20 @@ async function main() {
       const pct = st.dur > 0 ? st.cur / st.dur : 0;
       log(`进度 ${st.cur}/${st.dur} (${(pct * 100).toFixed(1)}%) paused=${st.paused} rate=${st.rate} muted=${st.muted}`);
 
-      if (st.ended || pct >= FINISH_RATIO) {
-        played.push({ ur: url.slice(0, 90), cur: st.cur, dur: st.dur });
-        log(`本节达标（${(pct * 100).toFixed(1)}% >= ${(FINISH_RATIO * 100)}%），回列表`);
+      /**
+       * 达标判据：只认「看完」。
+       *
+       * 踩过的坑（2026-11-27，空转 2 小时）：最初用 pct >= 0.55 判定。
+       * 学习通会从服务端恢复播放位置，有些节一进去就是 54.4%，播 3 秒就过 55%，
+       * 脚本判定达标回列表；但平台没记账（任务点仍是橙色 1），列表里它还是
+       * 「第一个未完成」，于是「进节→3 秒→回列表」无限循环，一节课也没看完。
+       *
+       * 根因：位置 ≠ 累计观看时长。位置可以从服务端恢复，累计时长不能。
+       * 只有从当前位置播到结尾，累计时长才必然补齐，平台才会记账。
+       */
+      if (st.ended || pct >= 0.985) {
+        played.push({ url: url.slice(0, 90), cur: st.cur, dur: st.dur });
+        log(`本节播完（${(pct * 100).toFixed(1)}%），回列表`);
         await navigate(COURSE_LIST_URL());
         continue;
       }
@@ -343,7 +354,9 @@ async function main() {
     await navigate(COURSE_LIST_URL());
   }
 
-  log('=== 结束 ===');
+  // 这个标记必须是纯 ASCII：外层 supervise-autoplay.ps1 要用它判断「全跑完了」，
+  // 而 Windows PowerShell 5.1 读中文会乱码，-match 中文必然失败。
+  log('=== END ===');
   log(`本次处理 ${played.length} 节：`);
   for (const p of played) log(`  ${p.cur}/${p.dur}  ${p.ur}`);
 
