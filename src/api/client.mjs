@@ -22,11 +22,52 @@ export function isAuthFailure({ status, location, body }) {
 
 /**
  * 发起请求。
+ *
+ * 默认 **不跟随重定向**（`follow` 未开），因为很多调用点要靠 302 的 location
+ * 判断「是不是被踢到登录页」。需要跟随的调用点（如 i.chaoxing.com/base 会 302）
+ * 显式传 `follow: true`，最多跟 `maxHops`（默认 5）跳，并保留完整链路便于排查。
+ *
  * @param {string} url
- * @param {{method?:string, body?:string, headers?:Record<string,string>, timeoutMs?:number, cookies?:Record<string,string>}} [opts]
+ * @param {{method?:string, body?:string, headers?:Record<string,string>, timeoutMs?:number,
+ *          cookies?:Record<string,string>, follow?:boolean, maxHops?:number}} [opts]
  */
 export async function request(url, opts = {}) {
   const cookies = opts.cookies || loadCookies();
+  const follow = opts.follow === true;
+  const maxHops = follow ? (opts.maxHops ?? 5) : 0;
+
+  let currentUrl = url;
+  const chain = [];
+  let last = null;
+
+  for (let hop = 0; ; hop++) {
+    last = await fetchOnce(currentUrl, opts, cookies);
+    chain.push({ url: currentUrl, status: last.status, location: last.location });
+
+    const isRedirect = [301, 302, 303, 307, 308].includes(last.status);
+    if (!isRedirect || hop >= maxHops) break;
+
+    const loc = last.location;
+    if (!loc) break;
+    try {
+      currentUrl = new URL(loc, currentUrl).href;
+    } catch {
+      break;
+    }
+    // 303 语义上要改成 GET；跨域 302 也常见。保守处理：只对 303 改方法
+    if (last.status === 303) opts = { ...opts, method: 'GET', body: undefined };
+  }
+
+  return {
+    ...last,
+    finalUrl: currentUrl,
+    hops: chain.length - 1,
+    chain,
+  };
+}
+
+/** 单跳请求，不做重定向处理 */
+async function fetchOnce(url, opts, cookies) {
   const headers = {
     'User-Agent': DEFAULT_UA,
     Accept: 'application/json, text/plain, text/html, */*',
