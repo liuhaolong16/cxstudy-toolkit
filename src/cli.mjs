@@ -15,6 +15,8 @@ import { loginInteractive } from './auth/login.mjs';
 import { listCourses, matchCourse } from './api/courses.mjs';
 import { listChapters } from './api/chapters.mjs';
 import { request, ENDPOINTS } from './api/client.mjs';
+import { listExams, pendingExams } from './api/exams.mjs';
+import { listMaterials, findMaterials, downloadMaterial } from './api/materials.mjs';
 import { ChromeSession } from './browser/cdp.mjs';
 import { playKnowledge, inspectKnowledge } from './browser/player.mjs';
 import { runGates, summarize } from './gates/index.mjs';
@@ -54,11 +56,15 @@ const USAGE = `
   cxa auth import <文件>               从浏览器导出的 cookie 文件导入
 
   cxa 是主命令；cxstudy 是等价的旧别名，两者可互换。
-  cxa courses                          列出课程
-  cxa chapters --cid <id> --clz <id>   列出章节与知识点（含进度）
-  cxa play --cid <id> --clz <id>       后台连播视频（题目/文档跳过）
-  cxa check [--cid --clz]              跑判据门
-  cxa mcp                              以 MCP server 方式运行（stdio）
+  cxa courses                             列出课程
+  cxa chapters --cid <id> --clz <id>       列出章节与知识点（含进度）
+  cxa exams [--all] [--json]               未结束的考试安排（--all 看全部历史）
+  cxa materials --course <名>              课程资料区
+      --find <关键词>                      递归搜（配合 --download 一起下载）
+      --download <目录>
+  cxa play --cid <id> --clz <id>          后台连播视频（题目/文档跳过）
+  cxa check [--cid --clz]                 跑判据门
+  cxa mcp                                 以 MCP server 方式运行（stdio）
 
 play 选项：
   --kid <id>        只播单个知识点
@@ -131,6 +137,147 @@ async function cmdCourses() {
 function resolvePersonId(courses, courseId) {
   const hit = courses.find((c) => String(c.courseId) === String(courseId));
   return hit ? hit.personId : null;
+}
+
+const PHASE_LABEL = {
+  upcoming: '未开始',
+  active: '进行中',
+  ended: '已结束',
+  unknown: '时间待定',
+};
+
+function fmtDate(d) {
+  if (!(d instanceof Date)) return '?';
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+async function cmdExams() {
+  const now = new Date();
+  const wantAll = has('all') || has('json');
+
+  const r = wantAll ? await listExams({ now }) : await pendingExams({ now });
+  if (!r.ok) {
+    log(`✖ 读取考试安排失败：${r.reason}`);
+    if (r.evidence) log(`  证据：${JSON.stringify(r.evidence).slice(0, 200)}`);
+    log('  先跑 `cxa auth status` 确认会话');
+    return 1;
+  }
+
+  if (has('json')) {
+    log(JSON.stringify({ ok: true, exams: r.exams }, null, 2));
+    return 0;
+  }
+
+  if (!r.exams.length) {
+    log(wantAll ? '没有考试记录。' : '没有未结束的考试。');
+    log('  （加 --all 看全部历史考试）');
+    return 0;
+  }
+
+  log(wantAll ? `共 ${r.exams.length} 场考试\n` : `未结束的考试 ${r.exams.length} 场\n`);
+  const pad = (s, n) => String(s ?? '').padEnd(n).slice(0, n);
+
+  log(`${pad('状态', 8)} ${pad('考试名称', 32)} ${pad('开始', 17)} ${pad('结束', 17)} ${pad('时长', 6)} 作答`);
+  log('-'.repeat(100));
+  for (const e of r.exams) {
+    const phase = PHASE_LABEL[e.phase] || e.phase;
+    log(
+      `${pad(phase, 8)} ${pad(e.name, 32)} ${pad(fmtDate(e.start), 17)} ${pad(fmtDate(e.end), 17)} ` +
+        `${pad(e.durationMin ? e.durationMin + '分' : '?', 6)} ${e.answerStatus || ''}`,
+    );
+  }
+  return 0;
+}
+
+/** 从 courses 里按 --course 名字或 --cid 找课程 */
+async function resolveCourseArg() {
+  const cid = num('cid');
+  const clz = num('clz');
+  const { authenticated, courses } = await listCourses();
+  if (!authenticated) return { ok: false, reason: '会话失效，先跑 `cxa auth login`' };
+
+  if (cid && clz) {
+    const c = courses.find((x) => Number(x.courseId) === cid) || {};
+    return {
+      ok: true,
+      course: { courseId: cid, clazzId: clz, cpi: num('cpi', c.personId), name: c.name || String(cid) },
+    };
+  }
+
+  const keyword = arg('course');
+  if (!keyword) return { ok: false, reason: '需要 --course <课程名> 或 --cid/--clz' };
+
+  // 注意：matchCourse 返回的是**数组**，不是单个对象
+  const hits = matchCourse(courses, keyword);
+  if (!hits.length) {
+    const names = courses.map((c) => c.name).slice(0, 12);
+    return { ok: false, reason: `没找到课程「${keyword}」。前 12 门：${names.join(' / ')}` };
+  }
+  if (hits.length > 1) {
+    // 多个匹配时不猜，列出来让调用方用更完整的名字或 --cid
+    const list = hits.map((c) => `  ${c.name}（courseId=${c.courseId}, classId=${c.classId}）`).join('\n');
+    return {
+      ok: false,
+      reason: `「${keyword}」匹配到 ${hits.length} 门课，请写得更具体或用 --cid/--clz：\n${list}`,
+    };
+  }
+
+  const hit = hits[0];
+  return {
+    ok: true,
+    course: {
+      courseId: hit.courseId,
+      clazzId: hit.classId, // 注意字段名是 classId，materials.mjs 内部叫 clazzId
+      cpi: hit.personId,
+      name: hit.name,
+    },
+  };
+}
+
+async function cmdMaterials() {
+  const rc = await resolveCourseArg();
+  if (!rc.ok) {
+    log(`✖ ${rc.reason}`);
+    return 2;
+  }
+  const course = rc.course;
+  const keyword = arg('find');
+  const saveDir = arg('download');
+
+  if (keyword) {
+    const r = await findMaterials(course, keyword, { maxDepth: num('depth', 3) });
+    if (!r.ok) {
+      log(`✖ 搜索失败：${r.reason}`);
+      return 1;
+    }
+    log(`「${course.name}」里含「${keyword}」的条目 ${r.hits.length} 条（扫了 ${r.scanned} 个目录）\n`);
+    for (const h of r.hits) {
+      log(`  ${h.kind === 'folder' ? '[目录]' : '[文件]'} ${h.path}`);
+    }
+    if (saveDir) {
+      const files = r.hits.filter((h) => h.kind === 'file');
+      log(`\n开始下载 ${files.length} 个文件到 ${saveDir}`);
+      for (const f of files) {
+        const d = await downloadMaterial(course, f, saveDir);
+        log(`  ${d.ok ? '✓' : '✗'} ${f.path}${d.ok ? `  ${d.bytes} 字节` : `  ${d.reason}`}`);
+      }
+    }
+    return 0;
+  }
+
+  const r = await listMaterials(course);
+  if (!r.ok) {
+    log(`✖ 读取资料区失败：${r.reason}`);
+    return 1;
+  }
+  log(`「${course.name}」资料区根目录 ${r.items.length} 项\n`);
+  for (const it of r.items) {
+    const tag = it.kind === 'folder' ? '[目录]' : it.downloadable ? '[文件]' : '[文件·不可下载]';
+    log(`  ${it.type === 'folder' || it.kind === 'folder' ? tag : tag} ${it.name}`);
+  }
+  log('\n提示：--find <关键词> 递归搜；加 --download <目录> 一起下载');
+  return 0;
 }
 
 async function cmdChapters() {
@@ -352,6 +499,10 @@ async function main() {
       return cmdCourses();
     case 'chapters':
       return cmdChapters();
+    case 'exams':
+      return cmdExams();
+    case 'materials':
+      return cmdMaterials();
     case 'play':
       return cmdPlay();
     case 'check':

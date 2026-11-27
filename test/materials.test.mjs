@@ -10,7 +10,7 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { parseMaterials, validateDownload } from '../src/api/materials.mjs';
+import { parseMaterials, validateDownload, matchMaterialKeyword } from '../src/api/materials.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const FIXTURE = fs.readFileSync(path.join(HERE, 'fixtures', 'materials-list.html'), 'utf8');
@@ -158,4 +158,32 @@ test('validateDownload：未知二进制判失败并吐魔数（便于排查，�
   // magic 是前 8 字节的 hex（16 个字符），不是 4 字节
   assert.ok(r.magic.startsWith('00010203'), `magic 应以 00010203 开头，实际 ${r.magic}`);
   assert.equal(r.magic.length, 16);
+});
+
+/* ------------------------------------------------------------------ */
+/* 关键词匹配：比路径而不是比文件名（2026-11-28 实测撞出的设计 bug）      */
+/* ------------------------------------------------------------------ */
+
+test('matchMaterialKeyword：搜「课件」命中目录下的文件（文件名本身不含课件）', () => {
+  // 真实数据：文件名是 chapter 17 杂环化合物.pdf，所在目录才叫「课件PDF」
+  const hit = matchMaterialKeyword('课件PDF/chapter 17 杂环化合物.pdf', '课件', 'file');
+  assert.equal(hit, true, '只比文件名会漏掉这一类，实测搜课件从 37 条变 0 条');
+
+  const miss = matchMaterialKeyword('教案PDF/有机化学课程教案.pdf', '课件', 'file');
+  assert.equal(miss, false);
+});
+
+test('matchMaterialKeyword：目录默认算命中（搜课件时用户想看的就是那个目录）', () => {
+  assert.equal(matchMaterialKeyword('课件PDF', '课件', 'folder'), true);
+  assert.equal(matchMaterialKeyword('课件PDF', '课件', 'folder', false), false, '显式关掉时目录不算');
+});
+
+test('matchMaterialKeyword：大小写不敏感', () => {
+  assert.equal(matchMaterialKeyword('Chapter 17 杂环.pdf', 'chapter', 'file'), true);
+  assert.equal(matchMaterialKeyword('chapter 17 杂环.pdf', 'CHAPTER', 'file'), true);
+});
+
+test('matchMaterialKeyword：空关键词不命中任何东西', () => {
+  assert.equal(matchMaterialKeyword('课件PDF/a.pdf', '', 'file'), false);
+  assert.equal(matchMaterialKeyword('课件PDF/a.pdf', '   ', 'file'), false);
 });

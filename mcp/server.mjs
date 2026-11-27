@@ -16,6 +16,8 @@ import { loadCookies } from '../src/auth/cookies.mjs';
 import { listCourses } from '../src/api/courses.mjs';
 import { listChapters } from '../src/api/chapters.mjs';
 import { request } from '../src/api/client.mjs';
+import { listExams, pendingExams } from '../src/api/exams.mjs';
+import { listMaterials, findMaterials, downloadMaterial } from '../src/api/materials.mjs';
 import { ChromeSession } from '../src/browser/cdp.mjs';
 import { playKnowledge, inspectKnowledge } from '../src/browser/player.mjs';
 import { runGates, summarize } from '../src/gates/index.mjs';
@@ -46,6 +48,118 @@ const tools = {
     async run() {
       const { authenticated, courses } = await listCourses();
       return { authenticated, count: courses.length, courses };
+    },
+  },
+
+  cx_exams: {
+    description:
+      '考试安排（全校）。默认只返回**还没结束**的考试（未开始 + 进行中），按开始时间升序——' +
+      '用户说「我要考试了」时先跑这个。传 all=true 看全部历史考试。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        all: { type: 'boolean', description: 'true 则返回全部考试（含已结束）' },
+      },
+      additionalProperties: false,
+    },
+    async run(args) {
+      const now = new Date();
+      const r = args.all ? await listExams({ now }) : await pendingExams({ now });
+      if (!r.ok) return { error: r.reason, evidence: r.evidence };
+
+      // 同时给本地时间和 UTC：
+      //   startLocal 给人/模型直接读（"2025-04-03 14:49"）
+      //   start      给程序算差集（ISO 8601）
+      // 只给 ISO 的话模型看到的是 06:49Z，容易被误读成早上六点。
+      const fmtLocal = (d) => {
+        if (!(d instanceof Date)) return null;
+        const p = (n) => String(n).padStart(2, '0');
+        return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+      };
+
+      return {
+        count: r.exams.length,
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        exams: r.exams.map((e) => ({
+          name: e.name,
+          phase: e.phase, // upcoming | active | ended | unknown
+          startLocal: fmtLocal(e.start),
+          endLocal: fmtLocal(e.end),
+          start: e.start ? e.start.toISOString() : null,
+          end: e.end ? e.end.toISOString() : null,
+          timeText: e.timeText,
+          durationMin: e.durationMin,
+          status: e.status,
+          answerStatus: e.answerStatus,
+          score: e.score,
+        })),
+        hint: r.exams.length
+          ? undefined
+          : '没有未结束的考试。传 all=true 看历史。注意：考试安排由学校录入，可能滞后。',
+      };
+    },
+  },
+
+  cx_materials: {
+    description:
+      '课程资料区。三种用法：①只给 courseId/classId → 列根目录；' +
+      '②给 keyword → 递归搜索（匹配**完整路径**，所以搜「课件」能命中「课件PDF/xxx.pdf」）；' +
+      '③再给 saveDir → 把搜到的文件下载到本地。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        courseId: { type: 'number' },
+        classId: { type: 'number' },
+        personId: { type: 'number', description: '不传则自动从课程列表推断' },
+        keyword: { type: 'string', description: '递归搜索的关键词，比对的是一整条路径' },
+        saveDir: { type: 'string', description: '下载目标目录（需配合 keyword）' },
+        maxDepth: { type: 'number', description: '递归层数，默认 3' },
+      },
+      required: ['courseId', 'classId'],
+      additionalProperties: false,
+    },
+    async run(args) {
+      const { courses } = await listCourses();
+      const hit = courses.find((c) => String(c.courseId) === String(args.courseId));
+      const course = {
+        courseId: args.courseId,
+        clazzId: args.classId,
+        cpi: args.personId || hit?.personId,
+      };
+
+      if (args.keyword) {
+        const r = await findMaterials(course, args.keyword, { maxDepth: args.maxDepth ?? 3 });
+        if (!r.ok) return { error: r.reason };
+
+        let downloaded = null;
+        if (args.saveDir) {
+          const files = r.hits.filter((h) => h.kind === 'file');
+          downloaded = { dir: args.saveDir, ok: 0, failed: [] };
+          for (const f of files) {
+            const d = await downloadMaterial(course, f, args.saveDir);
+            if (d.ok) downloaded.ok++;
+            else downloaded.failed.push({ path: f.path, reason: d.reason });
+          }
+        }
+
+        return {
+          course: hit?.name || String(args.courseId),
+          keyword: args.keyword,
+          foldersScanned: r.scanned,
+          count: r.hits.length,
+          hits: r.hits.map((h) => ({ kind: h.kind, type: h.type, path: h.path, downloadable: h.downloadable })),
+          downloaded,
+        };
+      }
+
+      const r = await listMaterials(course);
+      if (!r.ok) return { error: r.reason, evidence: r.evidence };
+      return {
+        course: hit?.name || String(args.courseId),
+        count: r.items.length,
+        items: r.items.map((i) => ({ kind: i.kind, type: i.type, name: i.name, downloadable: i.downloadable })),
+        hint: '加 keyword 递归搜；再加 saveDir 一起下载',
+      };
     },
   },
 

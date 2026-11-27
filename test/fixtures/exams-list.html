@@ -1,0 +1,216 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+
+<script>
+    _HOST_ = "//mooc1-api.chaoxing.com";
+    _CP_ = "/exam-ans";
+    _HOST_CP1_ = "//mooc1-api.chaoxing.com/exam-ans";
+    // _HOST_CP2_ = _HOST_ + _CP_;
+    _HOST_CP2_ = _CP_;
+</script><head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<title>考试列表</title>
+<link rel="stylesheet" type="text/css" href="//mooc1-api.chaoxing.com/exam-ans/css/exam/test/examcode/style_list.css?v=2026-0902-1800"/>
+<link rel="stylesheet" type="text/css" href="//mooc1-api.chaoxing.com/exam-ans/mooc2/css/pop.css"/>
+<link rel="stylesheet" type="text/css" href="//mooc1-api.chaoxing.com/exam-ans/mooc2/css/examStudent_pop.css?v=2026-0129-1516"/>
+<script src="//mooc1-api.chaoxing.com/exam-ans/space/new/js/jquery.min.js"></script>
+<script type="text/javascript" src="//mooc1-api.chaoxing.com/exam-ans/space/new/js/pageUtil.js"></script>
+</head>
+<style>
+		*{outline: none;}
+</style>
+
+<body style="background:#f7f7f7;">
+  			     <div id="examTop"></div>
+	     <script async  type="text/javascript" src="https://kaoshi.chaoxing.com/fynewexam/portal/top?topdivid=examTop"></script>
+	
+   <div class="ks_tips">退出或离开答题页面，答题计时不暂停，进入考试后请不要中途离开，以防超时系统自动收卷。</div> <div class="dr_box">
+	<div class="dr_main">
+		<div class="dr_thead">
+			<h3 tabindex="0" role="option" aria-label="考试列表已刷新，请按 Tab 键继续"  class="dr_title fl"
+							>考试列表</h3>
+			  <p style="float:right;position:relative;margin:14px;">
+								    <a role="button" href="javascript:void(0);" class="l_cta2" style="width:60px; margin-left:10px;" onclick="window.location.reload();">刷新</a>
+			  </p>
+		</div>
+		<form method="post" action="/exam-ans/exam/test/examcode/examlist?edition=0&nohead=0&fid=" id="formdata">
+             <input type="hidden"  name="start" id="start"/>
+             <input type="hidden"  name="nohead" value="0"/>
+             <input type="hidden"  name="fid" value=""/>
+    		<div class="l_linetwo">
+              <ul class="l_mbbtmitem" tabindex="-1" aria-hidden="true">
+                <li class="lmbbmilist statuschoose" tabindex="-1" aria-hidden="true">
+                	 <select tabindex="-1" aria-hidden="true" name="status" data-placeholder=" 全部考试状态 " style="width:230px;" class="dept_select">
+    	                <option value="-1" >全部</option>
+    	                <option value="4" >待批阅</option>
+    	                <option value="1"  selected="selected" >未交</option>
+    	                <option value="3" >已完成</option>
+    	            </select>
+                  <div class="clear"></div>
+                </li>
+                <li class="lmbbmilist" tabindex="-1" aria-hidden="true">
+                	 <select tabindex="-1" aria-hidden="true" name="clientexam" data-placeholder=" 选择考试方式 " style="width:230px;" class="dept_select">
+    	                <option value="-1"  selected="selected" >选择考试方式</option>
+    	                <option value="1" >电脑考试客户端</option>
+    	                <option value="2" >学习通</option>
+    	                <option value="3" >学习通或电脑客户端</option>
+    	                <option value="0" >未设置终端</option>
+    	            </select>
+                  <div class="clear"></div>
+                </li>
+                <li class="lmbbmilist" tabindex="-1" aria-hidden="true">
+                  <div class="l_searchbox fl">
+                    <input tabindex="-1" aria-hidden="true" id="tags" class="l_stext ui-autocomplete-input" placeholder="请输入考试名称查找"  name="sw" autocomplete="off" value=""/>
+                  </div>
+                </li>
+                <li tabindex="-1" aria-hidden="true" class="lmbbmilist"><a tabindex="-1" aria-hidden="true" href="javascript:void(0);" class="l_cta2 searchBtn">查找</a></li>
+                <div class="clear"></div>
+              </ul>
+            </div>
+		</form>
+						<div class="dr_table">
+		<table width="100%" border="0" cellspacing="0" cellpadding="0" class="dataTable">
+			<tr>
+                <th width="5%">编号</th>
+				<th width="17%">考试名称</th>
+
+				<th width="14%">考试时间</th>
+
+                <th width="10%">考试时长（分钟）</th>
+
+                <th width="10%">考试倒计时</th>
+
+				
+                <th width="8%">考试状态</th>
+                <th width="8%">作答状态</th>
+				<th width="6%">分数</th>
+
+				<th width="10%">考试方式</th>
+
+				<th width="12%">操作</th>
+			</tr>
+								                     	                       							 				                    					                    					                    				                    				   				   
+				   				   			<tr tabindex="-1" aria-hidden="true" class="dataTr">
+				<td>1</td>
+				<td tabindex="0" role="option" aria-label="考试名称: unit 6 additional passage 1" >unit 6 additional passage 1</td>
+				<td tabindex="0" role="option" aria-label="考试时间: 2025年04月03日14时50分 ;至; 2025年04月03日15时50分 " >
+					 2025-04-03 14:50 至 2025-04-03 15:50 				</td>
+				<td tabindex="0" role="option" aria-label="考试时长: 60 （分钟）">60</td>
+				<td ></td>
+				                <td tabindex="0" role="option" aria-label="考试状态: 已结束">已结束</td>
+                <td tabindex="0" role="option" aria-label="作答状态: 未交">未交</td>
+				<td  >
+					---
+				</td>
+				<td tabindex="0" role="option" aria-label="考试方式: 未设置终端">未设置终端</td>
+				<td>
+				      							<a class="col_blue" href="javascript:void(0);" onclick="go('/exam-ans/mycourse/transfer?moocId=251697061&clazzid=119317479&ut=s&refer=%2Fexam-ans%2Fexam%2Ftest%2Fexamcode%2Fexamnotes%3FcourseId%3D251697061%26classId%3D119317479%26examId%3D6550539%26nohead%3D0%26qbanksystem%3D1%26qbankbackurl%3D%252Fexam-ans%252Fexam%252Ftest%252Fexamcode%252Fexamlist%253Fedition%253D0%2526nohead%253D0%2526fid%253D', '0')">
+                    			                              	           							    查看        						           				     </a>
+				  	  				</td>
+			</tr>
+		   					                     	                       							 				                    					                    					                    				                    				   				   
+				   				   			<tr tabindex="-1" aria-hidden="true" class="dataTr">
+				<td>2</td>
+				<td tabindex="0" role="option" aria-label="考试名称: unit 6 additional conversation" >unit 6 additional conversation</td>
+				<td tabindex="0" role="option" aria-label="考试时间: 2025年04月03日14时49分 ;至; 2025年04月03日15时49分 " >
+					 2025-04-03 14:49 至 2025-04-03 15:49 				</td>
+				<td tabindex="0" role="option" aria-label="考试时长: 60 （分钟）">60</td>
+				<td ></td>
+				                <td tabindex="0" role="option" aria-label="考试状态: 已结束">已结束</td>
+                <td tabindex="0" role="option" aria-label="作答状态: 未交">未交</td>
+				<td  >
+					---
+				</td>
+				<td tabindex="0" role="option" aria-label="考试方式: 未设置终端">未设置终端</td>
+				<td>
+				      							<a class="col_blue" href="javascript:void(0);" onclick="go('/exam-ans/mycourse/transfer?moocId=251697061&clazzid=119317479&ut=s&refer=%2Fexam-ans%2Fexam%2Ftest%2Fexamcode%2Fexamnotes%3FcourseId%3D251697061%26classId%3D119317479%26examId%3D6550537%26nohead%3D0%26qbanksystem%3D1%26qbankbackurl%3D%252Fexam-ans%252Fexam%252Ftest%252Fexamcode%252Fexamlist%253Fedition%253D0%2526nohead%253D0%2526fid%253D', '0')">
+                    			                              	           							    查看        						           				     </a>
+				  	  				</td>
+			</tr>
+		   		</table>
+						  <div class="page"></div>
+					</div>
+	</div>
+</div>
+<div class="maskDiv" style="display:none;z-index:1000;" id="stopExamEnterWin">
+	<div class="popDiv wid440 Marking" style="left:39%;top:40%;width:480px;height:215px;">
+		<div class="popHead">
+			<p class="fl fs18 colorDeep">提示</p>
+		</div>
+		<div class="het62"></div>
+		<div class="popWord fs16 colorIn" style="margin:6px 2px;overflow:auto;height:160px;word-break:break-all;">当前考试暂未开放，无法进入作答</div>
+		<div class="popBottom">
+			<a href="javascript:;" class="jb_btn jb_btn_92 fr fs14" onclick="$('#stopExamEnterWin').hide();">确定</a>
+		</div>
+		<div class="het72"></div>
+	</div>
+</div>
+<link rel="stylesheet" type="text/css" href="//mooc1-api.chaoxing.com/exam-ans/css/exam/test/examcode/chosen.css?v=2021-0803-1910"/>
+<script src="//mooc1-api.chaoxing.com/exam-ans/js/exam/test/examcode/chosen.jquery.js" type="text/javascript" charset="utf-8"></script>
+<script type="text/javascript">
+    $('.dept_select').chosen({
+    	no_results_text: "没有结果匹配",
+    	hide_results_on_select: false,
+    	max_shown_results: '2',
+        disable_search_threshold: 10,
+        allow_single_deselect : true,
+    });
+</script>
+
+<script type="text/javascript">
+	page.showPage(0/12+1,Math.ceil(2/12),"changePage", "首页", "尾页");
+	function changePage(pageNum) {
+	      var start =  (pageNum - 1) * (12 || 10);
+		  $('#start').val(start);
+		  $('#formdata').submit();
+	}
+</script>
+<script>
+$('.dept_select').change(function(){
+       $('#start').val(0);
+	   $('#formdata').submit();
+ });
+ $('.searchBtn').click(function(){
+       $('#start').val(0);
+	   $('#formdata').submit();
+ });
+ 
+ /*
+ $('.backToExamCodeBtn').click(function(){
+	// 返回考试码页面
+ 	window.location.href = '/exam-ans/exam/test/examcode';
+ });
+ */
+ 
+ $("#tags").keydown(function(event) {
+      if (event.keyCode == 13) {
+        $('#start').val(0);
+        $('#formdata').submit();
+      }
+  });
+
+  function go(url, stopExam){
+	  if (!stopExam) {
+		  stopExam = 0;
+	  }
+	if (stopExam == 1) {
+		$('#stopExamEnterWin').show();
+		return;
+	}
+	location.href = url;
+  }
+  $(function() {
+	  if("0" == "1"){
+		  try {
+			  if (window.top && window.top.accessiblePlugs) {
+				  window.top.accessiblePlugs.update();
+			  }
+		  } catch (e) {
+			  console.log(e)
+		  }
+		  $(".dr_title").focus();
+	  }
+  })
+</script>
+</body>
+</html>

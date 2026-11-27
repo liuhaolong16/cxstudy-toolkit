@@ -177,7 +177,28 @@ export async function listMaterials(course, folder = null) {
 }
 
 /**
+ * 判断一个条目是否命中关键词。纯函数，可离线单测。
+ *
+ * 匹配对象是**完整路径**而不是文件名 —— 老师常把东西放在「课件PDF/」里，
+ * 文件名叫「chapter 17 杂环化合物.pdf」本身不含「课件」。只比文件名时
+ * 搜「课件」会得到 0 条，而实际有 37 个条目。这是 2026-11-28 实测撞出来的。
+ *
+ * @param {string} itemPath 形如 "课件PDF/chapter 17 杂环化合物.pdf"
+ * @param {string} keyword
+ * @param {'file'|'folder'} kind
+ * @param {boolean} includeFolders 目录是否算命中（默认 true）
+ */
+export function matchMaterialKeyword(itemPath, keyword, kind, includeFolders = true) {
+  const kw = String(keyword || '').trim().toLowerCase();
+  if (!kw) return false;
+  if (kind === 'folder' && !includeFolders) return false;
+  return String(itemPath || '').toLowerCase().includes(kw);
+}
+
+/**
  * 递归找名字含 keyword 的条目（不区分大小写）。
+ *
+ * 匹配规则见 matchMaterialKeyword：比路径、默认含目录。
  *
  * @param {object} course {courseId, clazzId, cpi}
  * @param {string} keyword
@@ -186,7 +207,7 @@ export async function listMaterials(course, folder = null) {
 export async function findMaterials(course, keyword, opts = {}) {
   const maxDepth = opts.maxDepth ?? 3;
   const limit = opts.limit ?? 50;
-  const includeFolders = opts.includeFolders === true;
+  const includeFolders = opts.includeFolders !== false; // 默认 true
   const kw = String(keyword || '').trim().toLowerCase();
   if (!kw) return { ok: false, hits: [], reason: 'empty-keyword' };
 
@@ -202,8 +223,7 @@ export async function findMaterials(course, keyword, opts = {}) {
 
     for (const item of layer.items) {
       const itemPath = [...pathParts, item.name].join('/');
-      const nameHit = item.name.toLowerCase().includes(kw);
-      if (nameHit && (item.kind === 'file' || includeFolders)) {
+      if (matchMaterialKeyword(itemPath, kw, item.kind, includeFolders)) {
         hits.push({ ...item, path: itemPath });
         if (hits.length >= limit) return;
       }
