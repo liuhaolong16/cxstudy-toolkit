@@ -20,7 +20,7 @@ import { ChromeSession } from '../src/browser/cdp.mjs';
 import { playKnowledge, inspectKnowledge } from '../src/browser/player.mjs';
 import { runGates, summarize } from '../src/gates/index.mjs';
 
-const SERVER_INFO = { name: 'cxstudy-toolkit', version: '0.1.0' };
+const SERVER_INFO = { name: 'chaoxing-assistant', version: '0.2.0' };
 
 /* ----------------------------- 工具实现 ----------------------------- */
 

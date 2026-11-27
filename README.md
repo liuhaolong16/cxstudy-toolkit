@@ -42,6 +42,57 @@
 - **不做考试中的实时答题**（那是作弊；考前复习档案才是本工具做的事）
 - 不维护题库服务器、不分发盗版教材
 
+---
+
+## 把仓库地址丢给 AI，它能替你做什么
+
+先说结论，因为不同客户端的能力差别很大：
+
+| 你的 AI | 能做到 | 做不到 |
+|---|---|---|
+| **Claude Code / Codex / Cursor / DSH** | 完整：clone、装、配 MCP、调用工具 | — |
+| **WorkBuddy 等有本地执行能力的** | 大概率同上（取决于它是否开放 shell） | — |
+| **豆包 / 千问 / 网页版聊天** | **读懂项目、给你针对你系统的安装步骤、解释报错** | **不能替你安装或运行**——它们没有本地文件系统和 shell |
+
+**豆包/千问做不到不是因为没做适配，而是纯聊天客户端本身没有本地执行权限。** 指望它"帮你装好"会落空；让它"读懂并一步步指导你"完全可行。
+
+### 为此提供三个入口文件
+
+| 文件 | 给谁读 | 作用 |
+|---|---|---|
+| **`llms.txt`** | 任何 AI | 一页说清是什么、怎么装、怎么用、硬边界。**把仓库 URL 丢给 AI，让它先读这个** |
+| `AGENTS.md` | 编码 Agent（Claude Code / Cursor / Codex） | 项目结构、改动节奏与已知坑 |
+| `README.md` | 人 | 完整说明 |
+
+### 已经支持 MCP 的客户端
+
+MCP 配置（stdio）：
+
+```json
+{
+  "mcpServers": {
+    "chaoxing": {
+      "command": "node",
+      "args": ["<仓库绝对路径>/mcp/server.mjs"]
+    }
+  }
+}
+```
+
+配好后的工具：`cx_status` / `cx_courses` / `cx_chapters` / `cx_play` / `cx_http` / `cx_gates`。
+
+**建议调用顺序**：`cx_status` → `cx_courses` → `cx_chapters` → `cx_play`。出问题先跑 `cx_status`。
+
+### 一键安装（Windows）
+
+```cmd
+install.cmd
+```
+
+双击即可。它会检查 Node 版本、验证文件完整、把 `cxa` 注册到 PATH、跑一次冒烟测试。**实测在带空格的路径下也能装**（`D:\deep seek工作区3\...` → `cxa` 全局可用）。
+
+**两个安装脚本刻意全 ASCII**：PowerShell 5.1 读无 BOM 的 `.ps1` 时按 ANSI 解码，中文注释会把大括号解析搞坏（`Unexpected token '}'`）；`cmd.exe` 更是在 `chcp` 生效前就解析完了。中文文档因此只放 `README.md`、`llms.txt`、`AGENTS.md`。
+
 ## 安装
 
 需要 **Node 22+**（依赖内置 WebSocket）和 **Chrome / Edge**。

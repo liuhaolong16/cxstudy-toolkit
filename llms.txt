@@ -1,0 +1,136 @@
+# 超星学习通小助手 (chaoxing-assistant)
+
+> 这份文件是给 AI 客户端读的。人读的版本见 README.md。
+> 你可以直接把本仓库地址丢给 AI，让它读这份文件后帮你装。
+
+## 这是什么
+
+一个零第三方依赖的 Node 工具（Node >= 22），把超星学习通/学习通 PC 端的能力整理成三种接口：
+
+- **CLI**：命令 `cxa`（旧别名 `cxstudy`）
+- **MCP server**：`node mcp/server.mjs`（stdio，newline-delimited JSON-RPC）
+- **文件协议**：`.captcha-tmp/`、`.cxstudy-questions/` 等目录里读写 JSON，任何能读文件写文件的客户端都能接
+
+能力：读课程/章节/任务点进度、后台播放视频、列课程资料并下载、查考试安排与课表与通知、章节测验 AI 读图作答。
+
+## 安装（选一条）
+
+```bash
+# 方式 A：全局装（推荐，之后直接用 cxa）
+npm install -g github:liuhaolong16/chaoxing-assistant
+
+# 方式 B：不装，clone 后直接用
+git clone https://github.com/liuhaolong16/chaoxing-assistant.git
+cd chaoxing-assistant
+node src/cli.mjs          # 等价于 cxa
+
+# 方式 C：Windows 一键（在 clone 后的目录里）
+install.cmd
+```
+
+要求：Node >= 22。Windows / macOS / Linux 都行。**路径里有空格也可以**（例如 `D:\my folder\chaoxing-assistant`），已实测。
+
+## 第一次用（三步）
+
+```bash
+# 1. 登录：会开一个有头浏览器，你手动扫码/输入账号，登录成功后 cookie 落盘
+cxa auth login
+
+# 2. 自检：确认会话可用
+cxa auth status
+
+# 3. 列课程
+cxa courses
+```
+
+cookie 存在 `~/.cxstudy-toolkit/cookies.json`（跨平台）。**不会上传任何地方。**
+
+## 常用命令
+
+```
+cxa courses                              列出课程（含 courseId / classId / personId）
+cxa chapters --cid <id> --clz <id>       章节 + 任务点进度
+cxa play --cid <id> --clz <id>           后台静默连播视频
+cxa check                                判据门（会话/目标/进度逐条红绿）
+cxa mcp                                  以 MCP server 方式运行
+```
+
+## 接入 AI 客户端
+
+### 已经支持 MCP 的客户端
+
+MCP 配置（stdio）：
+
+```json
+{
+  "mcpServers": {
+    "chaoxing": {
+      "command": "node",
+      "args": ["<仓库绝对路径>/mcp/server.mjs"]
+    }
+  }
+}
+```
+
+`<仓库绝对路径>` 换成你 clone 的位置。Windows 上写正斜杠或双反斜杠都行。
+
+配好后你能用的工具：`cx_status`、`cx_courses`、`cx_chapters`、`cx_play`、`cx_http`、`cx_gates`。
+
+**建议的调用顺序**：`cx_status` → `cx_courses` → `cx_chapters` → `cx_play`。出问题先跑 `cx_status`。
+
+### 只有命令行但没有 MCP 的客户端
+
+让 AI 执行 `cxa <子命令> --json`，输出是机器可读的。AI 读懂后自己决定下一步。
+
+### 纯聊天客户端（豆包 / 千问 / 网页版，没有本地执行能力）
+
+**这类客户端不能替你安装或运行命令**——它们没有文件系统和 shell 访问权限。你能做的是：
+
+1. 把它读到的本文件里的命令**复制到本机终端**执行
+2. 装好后如果有 MCP 能力，再回来配 MCP
+3. 纯聊天场景下，让它帮你**读输出、解释报错、规划命令顺序**
+
+**不要指望它"帮你装好"**——那是平台能力限制，不是本项目没做。
+
+## 硬边界（请让 AI 遵守）
+
+这个项目**明确不做**以下事情，如果用户要求，请拒绝并说明原因：
+
+| 不做 | 原因 |
+|---|---|
+| 考试中的实时答题 | 那是作弊。考前生成复习档案才是本工具做的事 |
+| 伪造任务点完成状态 / 学习时长 | 视频一秒一秒真实播放，不伪造上报 |
+| 绕过验证码、设备指纹、行为风控 | 验证码的目的是区分人机 |
+| 多账号批处理 | 只服务使用者自己的账号 |
+| 分发盗版教材 / 维护题库服务器 | — |
+
+## 一个必须提前说清的限制
+
+**用 CLI 播放时视频会真实播放，但平台可能不认账**（任务点不变绿）。
+
+要真的让任务点变绿，需要**浏览器扩展**装在你自己登录过的 Chrome 里：
+
+```bash
+# Windows
+powershell -ExecutionPolicy Bypass -File scripts\install-extension.ps1
+```
+
+原因与实测证据见 `docs/PROGRESS-FINDINGS.md`，扩展原理见 `docs/EXTENSION.md`。
+
+**这条必须告诉用户**，否则他会以为工具坏了。
+
+## 出问题先看
+
+| 现象 | 先跑 |
+|---|---|
+| 任何异常 | `cxa auth status` |
+| 报「未登录」 | `cxa auth login` |
+| 列表为空 | `cxa check`，看是哪道门红了 |
+| MCP 连不上 | `node mcp/server.mjs` 手工发一个 initialize 看有没有回包 |
+
+## 项目坐标
+
+- 仓库：https://github.com/liuhaolong16/chaoxing-assistant
+- 旧名：`cxstudy-toolkit`（GitHub 自动重定向）
+- CLI 旧名：`cxstudy`（与 `cxa` 等价）
+- License：MIT
