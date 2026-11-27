@@ -17,6 +17,7 @@ import { listChapters } from './api/chapters.mjs';
 import { request, ENDPOINTS } from './api/client.mjs';
 import { listExams, pendingExams } from './api/exams.mjs';
 import { listMaterials, findMaterials, downloadMaterial } from './api/materials.mjs';
+import { fetchSchedule, expandOccurrences, toICS, formatWeek } from './api/schedule.mjs';
 import { ChromeSession } from './browser/cdp.mjs';
 import { playKnowledge, inspectKnowledge } from './browser/player.mjs';
 import { runGates, summarize } from './gates/index.mjs';
@@ -59,6 +60,7 @@ const USAGE = `
   cxa courses                             列出课程
   cxa chapters --cid <id> --clz <id>       列出章节与知识点（含进度）
   cxa exams [--all] [--json]               未结束的考试安排（--all 看全部历史）
+  cxa schedule [--week n] [--ics <目录>]   课表；--ics 导出全学期 .ics 给日历导入
   cxa materials --course <名>              课程资料区
       --find <关键词>                      递归搜（配合 --download 一起下载）
       --download <目录>
@@ -233,6 +235,58 @@ async function resolveCourseArg() {
       name: hit.name,
     },
   };
+}
+
+async function cmdSchedule() {
+  const week = num('week') || null;
+  const r = await fetchSchedule(request, week);
+  if (!r.ok) {
+    log(`✖ 读取课表失败：${r.reason}`);
+    return 1;
+  }
+
+  const { meta, lessons } = r;
+  const targetWeek = week || meta.currentWeek;
+
+  if (has('json')) {
+    const occ = expandOccurrences(meta, lessons);
+    log(JSON.stringify({ ok: true, meta: { ...meta, firstWeekDate: meta.firstWeekDate?.toISOString() }, lessons, occurrences: occ.length }, null, 2));
+    return 0;
+  }
+
+  log(`${meta.userName || ''} ${meta.semesterLabel}  当前第 ${meta.currentWeek} 周`);
+  log(`共 ${lessons.length} 节课记录，节次表 ${meta.sectionTimes.length} 节\n`);
+
+  const occ = expandOccurrences(meta, lessons);
+  if (targetWeek) {
+    const text = formatWeek(occ, { week: targetWeek });
+    log(`第 ${targetWeek} 周`);
+    log('-'.repeat(80));
+    log(text || '（这周没有课）');
+  }
+
+  // 导出 .ics
+  const icsDir = arg('ics');
+  if (icsDir) {
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+    const name = arg('name', `课程表-${meta.schoolYear || ''}${meta.semester ? 'S' + meta.semester : ''}`.trim());
+    const dest = path.join(icsDir, `${name}.ics`);
+    // 默认导出全学期；--from-week/--to-week 可裁剪
+    const range = { fromWeek: num('from-week') || undefined, toWeek: num('to-week') || undefined };
+    const picked = expandOccurrences(meta, lessons, range);
+    const noTime = picked.filter((o) => o.startMin == null).length;
+    fs.mkdirSync(icsDir, { recursive: true });
+    fs.writeFileSync(dest, toICS(picked, { name }), 'utf8');
+    log('');
+    log(`✓ 已导出 ${picked.length} 个事件 → ${dest}`);
+    if (noTime) log(`  ⚠ 其中 ${noTime} 个没有节次时间，未写入日历（不编时刻）`);
+    log('  导入方式：手机日历 App 里「添加日历 → 从文件导入」选这个 .ics');
+  } else {
+    log('');
+    log('提示：加 --ics <目录> 导出全学期日历；--week <n> 看某一周');
+  }
+  return 0;
 }
 
 async function cmdMaterials() {
@@ -503,6 +557,8 @@ async function main() {
       return cmdExams();
     case 'materials':
       return cmdMaterials();
+    case 'schedule':
+      return cmdSchedule();
     case 'play':
       return cmdPlay();
     case 'check':

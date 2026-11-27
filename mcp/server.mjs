@@ -18,6 +18,7 @@ import { listChapters } from '../src/api/chapters.mjs';
 import { request } from '../src/api/client.mjs';
 import { listExams, pendingExams } from '../src/api/exams.mjs';
 import { listMaterials, findMaterials, downloadMaterial } from '../src/api/materials.mjs';
+import { fetchSchedule, expandOccurrences, toICS, formatWeek } from '../src/api/schedule.mjs';
 import { ChromeSession } from '../src/browser/cdp.mjs';
 import { playKnowledge, inspectKnowledge } from '../src/browser/player.mjs';
 import { runGates, summarize } from '../src/gates/index.mjs';
@@ -160,6 +161,59 @@ const tools = {
         items: r.items.map((i) => ({ kind: i.kind, type: i.type, name: i.name, downloadable: i.downloadable })),
         hint: '加 keyword 递归搜；再加 saveDir 一起下载',
       };
+    },
+  },
+
+  cx_schedule: {
+    description:
+      '课表。默认返回当前周的安排（含真实日期、节次时间、教室、教师）。' +
+      '传 week 看某一周；传 icsDir 则把全学期导出成 .ics 日历文件（可在手机日历里导入）。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        week: { type: 'number', description: '看第几周；不传则当前周' },
+        icsDir: { type: 'string', description: '传了就把全学期导出到这个目录（生成 .ics）' },
+        fromWeek: { type: 'number', description: '导出时的起始周（可选）' },
+        toWeek: { type: 'number', description: '导出时的结束周（可选）' },
+      },
+      additionalProperties: false,
+    },
+    async run(args) {
+      const r = await fetchSchedule(request, args.week);
+      if (!r.ok) return { error: r.reason };
+
+      const { meta, lessons } = r;
+      const occ = expandOccurrences(meta, lessons);
+      const targetWeek = args.week || meta.currentWeek;
+
+      const result = {
+        semester: meta.semesterLabel,
+        currentWeek: meta.currentWeek,
+        firstWeekDate: meta.firstWeekDate ? meta.firstWeekDate.toISOString() : null,
+        sectionTimes: meta.sectionTimes.map((s) => `${s.startText}-${s.endText}`),
+        lessonCount: lessons.length,
+        week: targetWeek,
+        weekText: formatWeek(occ, { week: targetWeek }) || '（这周没有课）',
+      };
+
+      if (args.icsDir) {
+        const fs = await import('node:fs');
+        const path = await import('node:path');
+        const name = `课程表-${meta.schoolYear || ''}${meta.semester ? 'S' + meta.semester : ''}`.trim();
+        const dest = path.join(args.icsDir, `${name}.ics`);
+        const picked = expandOccurrences(meta, lessons, {
+          fromWeek: args.fromWeek || undefined,
+          toWeek: args.toWeek || undefined,
+        });
+        const noTime = picked.filter((o) => o.startMin == null).length;
+        fs.mkdirSync(args.icsDir, { recursive: true });
+        fs.writeFileSync(dest, toICS(picked, { name }), 'utf8');
+        result.ics = { path: dest, events: picked.length, skippedNoTime: noTime };
+      } else {
+        result.hint = '传 icsDir 可导出全学期 .ics；传 week 可看指定周';
+      }
+
+      return result;
     },
   },
 
