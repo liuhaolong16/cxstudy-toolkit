@@ -49,3 +49,6 @@ api-contracts.json
 
 autoplay.log
 autoplay.log.err
+
+.captcha-tmp/
+.cxstudy-tmp/

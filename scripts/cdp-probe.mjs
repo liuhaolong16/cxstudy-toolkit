@@ -20,6 +20,7 @@
  *   node scripts/cdp-probe.mjs --navigate "https://..." --js "location.href"
  */
 import process from 'node:process';
+import fs from 'node:fs';
 
 const args = process.argv.slice(2);
 const arg = (name, def) => {
@@ -117,6 +118,24 @@ async function main() {
   if (navigateUrl) {
     await send('Page.navigate', { url: navigateUrl }, sid);
     await sleep(waitMs || 8000);
+  }
+
+  // --screenshot <path>：整页截图；配合 --clip "x,y,w,h" 只截某一块（验证码就用这个）
+  const shotPath = arg('screenshot', null);
+  if (shotPath) {
+    const params = { format: 'png' };
+    const clipArg = arg('clip', null);
+    if (clipArg) {
+      const parts = clipArg.split(',').map((s) => Number(s.trim()));
+      if (parts.length === 4 && parts.every((n) => Number.isFinite(n))) {
+        params.clip = { x: parts[0], y: parts[1], width: parts[2], height: parts[3], scale: 1 };
+      } else {
+        fail('--clip 需要 4 个数字：x,y,w,h');
+      }
+    }
+    const shot = await send('Page.captureScreenshot', params, sid);
+    fs.writeFileSync(shotPath, Buffer.from(shot.data, 'base64'));
+    console.log(JSON.stringify({ screenshot: shotPath, clip: params.clip || 'full' }));
   }
 
   if (jsCode) {

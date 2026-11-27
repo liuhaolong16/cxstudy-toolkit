@@ -20,6 +20,12 @@
  *   node scripts/auto-play-cdp.mjs ... --rate 1         # 改倍速（默认 2）
  */
 import process from 'node:process';
+import fs from 'node:fs';
+import path from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+
+const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 
 const args = process.argv.slice(2);
 const arg = (name, def) => {
@@ -45,6 +51,10 @@ const SAMPLE_MS = num('sample', 3000);
 const FINISH_RATIO = num('ratio', 0.55);
 // 文档/PDF 类任务点需要在页面停留的秒数（太短平台来不及记账）
 const DOC_WAIT_MS = num('doc-wait', 25) * 1000;
+/** 验证码 OCR：最多尝试几次（用户要求严格限次，默认 2 次后放弃） */
+const CAPTCHA_MAX_TRIES = num('captcha-tries', 2);
+/** 是否允许 OCR 自动解验证码（默认开；--no-ocr 可关） */
+const CAPTCHA_OCR = !has('no-ocr');
 
 if (!COURSE || !CLAZZ) {
   console.error('需要 --course 和 --clazz');
@@ -261,6 +271,117 @@ async function detectChallenge() {
   }
 }
 
+/**
+ * 尝试解一次图形数字验证码（截图 → 本地 OCR → 填入 → 提交）。
+ *
+ * 边界说明：这是用户明确选择的行为（OCR + 严格限次）。不联网、不调用付费模型、
+ * 不反复重试——调用方负责限次，失败就交还给人。
+ */
+async function solveCaptchaOnce() {
+  // 1) 定位验证码图片
+  const info = await evaluateJson(`JSON.stringify((function(){
+    var sels = [
+      'img[src*="captcha"]','img[src*="Captcha"]','img[src*="code"]','img[src*="verify"]',
+      '#captchaImg','#captcha_img','.captcha-img','.verifyCodeImg',
+      '[class*="captcha"] img','img[onclick*="refresh"]','img[onclick*="change"]',
+      'img[title*="验证码"]'
+    ];
+    for (var i = 0; i < sels.length; i++) {
+      var el = null;
+      try { el = document.querySelector(sels[i]); } catch (e) { continue; }
+      if (!el) continue;
+      var r = el.getBoundingClientRect();
+      if (r.width >= 30 && r.height >= 15) {
+        return { found: true, sel: sels[i], x: r.left, y: r.top, w: r.width, h: r.height };
+      }
+    }
+    return { found: false };
+  })())`);
+
+  if (!info || !info.found) return { ok: false, reason: '没找到验证码图片元素' };
+
+  // 2) 只截验证码那一小块（整页截图会因视频重绘而超时）
+  const pad = 6;
+  const clip = {
+    x: Math.max(0, info.x - pad),
+    y: Math.max(0, info.y - pad),
+    width: info.w + pad * 2,
+    height: info.h + pad * 2,
+    scale: 3,
+  };
+  const tmpDir = path.join(ROOT, '.captcha-tmp');
+  fs.mkdirSync(tmpDir, { recursive: true });
+  const imgPath = path.join(tmpDir, `cap-${Date.now()}.png`);
+
+  try {
+    const shot = await send('Page.captureScreenshot', { format: 'png', clip }, SID);
+    fs.writeFileSync(imgPath, Buffer.from(shot.data, 'base64'));
+  } catch (e) {
+    return { ok: false, reason: '截图失败: ' + e.message };
+  }
+
+  // 3) 本地 OCR（Windows.Media.Ocr，离线）
+  let raw = '';
+  try {
+    raw = execFileSync('powershell', [
+      '-STA', '-NoProfile', '-ExecutionPolicy', 'Bypass',
+      '-File', path.join(ROOT, 'scripts', 'ocr.ps1'),
+      '-ImagePath', imgPath,
+    ], { encoding: 'utf8', timeout: 60_000 }).trim();
+  } catch (e) {
+    return { ok: false, reason: 'OCR 调用失败: ' + e.message, img: imgPath };
+  }
+
+  const cleaned = raw.replace(/[^a-zA-Z0-9]/g, '');
+  if (cleaned.length < 3 || cleaned.length > 10) {
+    return { ok: false, reason: `OCR 结果不可用（清洗后长度 ${cleaned.length}）`, raw, img: imgPath };
+  }
+
+  // 4) 填入输入框
+  const fill = await evaluateJson(`JSON.stringify((function(){
+    var value = ${JSON.stringify(cleaned)};
+    var sels = [
+      'input[name*="captcha"]','input[id*="captcha"]','input[placeholder*="验证码"]',
+      'input[name*="code"]','input[id*="code"]','.captcha input','.verifyCode input'
+    ];
+    for (var i = 0; i < sels.length; i++) {
+      var el = null;
+      try { el = document.querySelector(sels[i]); } catch (e) { continue; }
+      if (!el || el.offsetParent === null) continue;
+      el.focus();
+      el.value = value;
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+      return { ok: true, sel: sels[i] };
+    }
+    return { ok: false };
+  })())`);
+
+  if (!fill || !fill.ok) {
+    return { ok: false, reason: '没找到验证码输入框', text: cleaned, img: imgPath };
+  }
+
+  // 5) 提交
+  await evaluate(`(function(){
+    var sels = ['a[onclick*="submit"]','button[onclick*="submit"]','input[type="submit"]',
+                '.captcha-submit','#captchaSubmit','button[class*="submit"]'];
+    for (var i = 0; i < sels.length; i++) {
+      var el = null;
+      try { el = document.querySelector(sels[i]); } catch (e) { continue; }
+      if (el && el.offsetParent !== null) { el.click(); return 'clicked'; }
+    }
+    var inp = document.querySelector('input[name*="captcha"], input[id*="captcha"]');
+    if (inp) {
+      inp.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, bubbles: true }));
+      return 'enter';
+    }
+    return 'none';
+  })()`);
+
+  await sleep(3000);
+  return { ok: true, text: cleaned, img: imgPath };
+}
+
 const COURSE_LIST_URL = () =>
   `https://mooc2-ans.chaoxing.com/mooc2-ans/mycourse/studentcourse?courseid=${COURSE}&clazzid=${CLAZZ}&cpi=${CPI}&ut=s`;
 
@@ -369,25 +490,66 @@ async function main() {
     if (challenge && challenge.blocked) {
       log(`⚠ 检测到验证码/人机校验：${(challenge.signals || []).join(',')}`);
       log(`   页面：${challenge.url}`);
-      log(`   已暂停等待人工处理（最多等 30 分钟，不自动破解）`);
 
-      let waited = 0;
-      let cleared = false;
-      while (waited < 30 * 60 * 1000) {
-        await sleep(30_000);
-        waited += 30_000;
-        // 这行同时承担两个作用：告诉人还在等 + 刷新日志 mtime 喂 watchdog
-        log(`   仍在等待验证码…（已等 ${Math.round(waited / 60_000)} 分钟）`);
-        const again = await detectChallenge();
-        if (again && !again.blocked) {
-          log(`✅ 验证码已清除（等待 ${Math.round(waited / 1000)} 秒），继续`);
-          cleared = true;
-          break;
+      /**
+       * OCR 尝试（用户选的策略：OCR + 严格限次）。
+       * 严格点：
+       *   - 最多 CAPTCHA_MAX_TRIES 次（默认 2），不做无限重试
+       *   - 每次失败记录原因与截图路径，便于人工复核
+       *   - 全部失败后转为纯等待，等人工处理后自动继续
+       */
+      let solved = false;
+      if (CAPTCHA_OCR) {
+        for (let i = 1; i <= CAPTCHA_MAX_TRIES; i++) {
+          log(`  验证码 OCR 第 ${i}/${CAPTCHA_MAX_TRIES} 次尝试`);
+          let r = null;
+          try {
+            r = await solveCaptchaOnce();
+          } catch (e) {
+            r = { ok: false, reason: e.message };
+          }
+          if (r && r.ok) {
+            log(`  已填入 ${JSON.stringify(r.text)}，等待校验结果`);
+            await sleep(4000);
+            const after = await detectChallenge();
+            if (after && !after.blocked) {
+              log(`✅ 验证码通过（第 ${i} 次）`);
+              solved = true;
+              break;
+            }
+            log(`  ✗ 第 ${i} 次未通过，验证码仍在`);
+          } else {
+            log(`  ✗ 第 ${i} 次失败：${r && r.reason ? r.reason : '未知'}`);
+            if (r && r.raw) log(`    OCR 原文：${JSON.stringify(r.raw)}`);
+            if (r && r.img) log(`    截图：${r.img}`);
+          }
+          await sleep(2500);
+        }
+        if (!solved) {
+          log(`⛔ OCR 已尝试 ${CAPTCHA_MAX_TRIES} 次未通过，不再重试（避免触发风控）`);
         }
       }
-      if (!cleared) {
-        log(`⏱ 等待超时 30 分钟，验证码仍在。请人工处理后重启看门狗。`);
-        break;
+
+      /* 人工兜底：等待期间每 30 秒写日志，既报进度又喂 watchdog */
+      if (!solved) {
+        log(`   转入人工等待（最多 30 分钟），请在弹出的窗口手动输入验证码`);
+        let waited = 0;
+        let cleared = false;
+        while (waited < 30 * 60 * 1000) {
+          await sleep(30_000);
+          waited += 30_000;
+          log(`   仍在等待验证码…（已等 ${Math.round(waited / 60_000)} 分钟）`);
+          const again = await detectChallenge();
+          if (again && !again.blocked) {
+            log(`✅ 人工已处理验证码（等待 ${Math.round(waited / 1000)} 秒），继续`);
+            cleared = true;
+            break;
+          }
+        }
+        if (!cleared) {
+          log(`⏱ 等待超时 30 分钟，验证码仍在。请人工处理后重启看门狗。`);
+          break;
+        }
       }
       continue;
     }
