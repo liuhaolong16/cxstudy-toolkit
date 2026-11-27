@@ -50,7 +50,16 @@ const DRY = has('dry-run');
 const SAMPLE_MS = num('sample', 3000);
 const FINISH_RATIO = num('ratio', 0.55);
 // 文档/PDF 类任务点需要在页面停留的秒数（太短平台来不及记账）
-const DOC_WAIT_MS = num('doc-wait', 25) * 1000;
+/**
+ * 视频卡在尾部时的判定。
+ *
+ * 实测（2026-11-27 20:09）：某节播到 92.3% 后在 5554-5555 之间反复震荡，
+ * 永远到不了 98.5%，导致脚本无限等待。
+ * 平台只要求 ≥50%，92% 早就够了，所以「停滞」本身就该算完成。
+ *
+ * 判据：进度连续 STALL_PROGRESS_SEC 秒变化 < 0.5% 且已过 50%，视为播完。
+ */
+const STALL_PROGRESS_SEC = num('stall-progress', 60);
 /** 验证码 OCR：最多尝试几次（用户要求严格限次，默认 2 次后放弃） */
 const CAPTCHA_MAX_TRIES = num('captcha-tries', 2);
 /** 是否允许 OCR 自动解验证码（默认开；--no-ocr 可关） */
@@ -463,6 +472,14 @@ async function controlVideo() {
 
 const played = [];
 
+/**
+ * 视频停滞检测状态。
+ * 有些课件的视频尾部会卡住（实测 5554↔5555 反复震荡），永远到不了 98.5%。
+ * 只要「进度长时间不变」且「已过 50%」，就按播完处理。
+ */
+let lastPct = -1;
+let lastPctChangeAt = 0;
+
 async function main() {
   await connect();
   log(`已连上 CDP，课程 ${COURSE} / 班级 ${CLAZZ}`);
@@ -625,6 +642,15 @@ async function main() {
       const pct = st.dur > 0 ? st.cur / st.dur : 0;
       log(`进度 ${st.cur}/${st.dur} (${(pct * 100).toFixed(1)}%) paused=${st.paused} rate=${st.rate} muted=${st.muted}`);
 
+      // 停滞检测：进度变化 < 0.5% 就认为没动
+      const nowMs = Date.now();
+      if (lastPct < 0 || Math.abs(pct - lastPct) >= 0.005) {
+        lastPct = pct;
+        lastPctChangeAt = nowMs;
+      }
+      const stalledSec = lastPctChangeAt ? Math.round((nowMs - lastPctChangeAt) / 1000) : 0;
+      const stalled = stalledSec >= STALL_PROGRESS_SEC && pct >= 0.5;
+
       /**
        * 达标判据：只认「看完」。
        *
@@ -635,12 +661,25 @@ async function main() {
        *
        * 根因：位置 ≠ 累计观看时长。位置可以从服务端恢复，累计时长不能。
        * 只有从当前位置播到结尾，累计时长才必然补齐，平台才会记账。
+       *
+       * 追加（同日 20:10）：某节播到 92.3% 后在 5554↔5555 震荡，永远到不了 98.5%。
+       * 平台只要求 ≥50%，所以「停滞 ≥60 秒且已过 50%」也算完成，否则会无限等。
        */
-      if (st.ended || pct >= 0.985) {
+      if (st.ended || pct >= 0.985 || stalled) {
         played.push({ url: url.slice(0, 90), cur: st.cur, dur: st.dur });
-        log(`本节播完（${(pct * 100).toFixed(1)}%），回列表`);
+        if (stalled) {
+          log(`本节停滞 ${stalledSec} 秒在 ${(pct * 100).toFixed(1)}%（已过 50%），判定播完回列表`);
+        } else {
+          log(`本节播完（${(pct * 100).toFixed(1)}%），回列表`);
+        }
+        lastPct = -1;
+        lastPctChangeAt = 0;
         await navigate(COURSE_LIST_URL());
         continue;
+      }
+
+      if (stalledSec >= 10 && stalledSec % 10 === 0) {
+        log(`  ⚠ 进度已 ${stalledSec} 秒未变化（${(pct * 100).toFixed(1)}%），${STALL_PROGRESS_SEC} 秒后判定完成`);
       }
 
       if (st.paused) log('  检测到暂停，已尝试恢复');
