@@ -43,18 +43,48 @@ chrome.exe --remote-debugging-port=9222 --user-data-dir=X   ← 才生效
 
 > 注意：注入的只有账号级 cookie。课程级 cookie（`<courseid>enc` / `ut` / `cpi` / `t`）会在**真实访问课程页时由服务端下发**——这正是它能记账的关键，别自己伪造。
 
+## 第三个坑：Chrome 后台节流（最隐蔽）
+
+**症状**：`video` 的所有指标都正常——
+
+```
+paused: false, rate: 2, readyState: 4, error: null, muted: true
+```
+
+单测 60 秒能走 120 秒（2x 完全正常），**但放 15 分钟只走了 22 秒**，任务点也不记账。
+
+**原因**：Chrome 窗口不在前台时，浏览器把定时器和 `requestAnimationFrame` 降频。学习通的播放器靠这些做进度上报与心跳，心跳停了，平台就不认这段观看。
+
+**修法**：启动时禁用节流（见下方启动流程）。
+
+**验证方法**：连测两次 `video.currentTime`，间隔 60 秒，差值应约 120 秒（2x）。差值远小于 120 就是被节流了。
+
+## 第四个坑：连播器会卡死且不报警
+
+`scripts/auto-play-cdp.mjs` 在页面重载时，CDP 的 `Runtime.evaluate` 会超时（30 秒）；连续超时后脚本既不退出也不推进，日志停住。
+
+**判据**：日志最后一行超过 2 分钟没有新输出，且 job 状态仍是 running → 卡死了。
+
+**修法**：给每次 CDP 调用加独立超时 + 失败重试，或外层套看门狗（每 3 分钟检查日志时间戳）。**这一条尚未实现，是已知缺陷。**
+
 ## 启动流程
 
 ```powershell
 # 1. 关掉现有 Chrome
 Get-Process chrome -ErrorAction SilentlyContinue | Stop-Process -Force
 
-# 2. 带调试端口 + 非默认 profile 启动
+# 2. 带调试端口 + 非默认 profile + 禁用节流（三条都不能少）
 $profile = "$env:TEMP\cx-chrome-cdp"
 Start-Process "C:\Program Files\Google\Chrome\Application\chrome.exe" -ArgumentList @(
   '--remote-debugging-port=9222',
   "--user-data-dir=$profile",
-  '--no-first-run'
+  '--no-first-run',
+  '--no-default-browser-check',
+  '--disable-background-timer-throttling',
+  '--disable-backgrounding-occluded-windows',
+  '--disable-renderer-backgrounding',
+  '--disable-features=CalculateNativeWinOcclusion',
+  '--autoplay-policy=no-user-gesture-required'
 )
 
 # 3. 验证端口
