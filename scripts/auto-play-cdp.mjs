@@ -105,18 +105,56 @@ async function connect() {
   await send('Runtime.enable', {}, SID);
 }
 
-async function evaluate(expression) {
-  const r = await send('Runtime.evaluate', {
-    expression,
-    returnByValue: true,
-    awaitPromise: true,
-    userGesture: true,
-  }, SID);
-  if (r.exceptionDetails) {
-    const d = r.exceptionDetails;
-    throw new Error('页面异常: ' + (d.exception?.description || d.text || '?'));
+/**
+ * 重连：页面重载/崩溃后 CDP 会话会失效，需要重新 attach。
+ * 这是「静默卡死」的修法之一——超时后先重连再重试，而不是一直等。
+ */
+async function reconnect() {
+  try { if (ws) ws.close(); } catch (e) {}
+  ws = null;
+  send = null;
+  SID = null;
+  await connect();
+}
+
+/**
+ * 执行 JS，带重试。
+ *
+ * 踩过的坑：页面重载时 Runtime.evaluate 会超时（30 秒），
+ * 连续超时后脚本既不退出也不推进，日志停住但 job 仍显示 running。
+ * 现在超时后会重连并重试，最多 3 次。
+ */
+async function evaluate(expression, retries = 3) {
+  let lastErr = null;
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      const r = await send('Runtime.evaluate', {
+        expression,
+        returnByValue: true,
+        awaitPromise: true,
+        userGesture: true,
+      }, SID);
+      if (r.exceptionDetails) {
+        const d = r.exceptionDetails;
+        // 页面异常是业务问题，不重试
+        throw new Error('页面异常: ' + (d.exception?.description || d.text || '?'));
+      }
+      return r.result?.value;
+    } catch (e) {
+      lastErr = e;
+      const msg = String(e?.message || e);
+      // 页面异常不重试
+      if (msg.startsWith('页面异常:')) throw e;
+      if (attempt < retries) {
+        log(`  CDP 调用失败（第 ${attempt}/${retries} 次）: ${msg} —— 2 秒后重连重试`);
+        await sleep(2000);
+        try { await reconnect(); } catch (re) {
+          log(`  重连也失败: ${re?.message || re}`);
+        }
+      }
+    }
   }
-  return r.result?.value;
+  throw lastErr || new Error('evaluate 失败');
 }
 
 async function evaluateJson(expression) {
