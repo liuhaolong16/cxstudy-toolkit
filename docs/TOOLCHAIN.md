@@ -65,7 +65,41 @@ paused: false, rate: 2, readyState: 4, error: null, muted: true
 
 **判据**：日志最后一行超过 2 分钟没有新输出，且 job 状态仍是 running → 卡死了。
 
-**修法**：给每次 CDP 调用加独立超时 + 失败重试，或外层套看门狗（每 3 分钟检查日志时间戳）。**这一条尚未实现，是已知缺陷。**
+**修法（已实现）**：
+
+1. `auto-play-cdp.mjs` 的 `evaluate()` 加了 3 次重试 + `reconnect()`，超时后先重连再重试
+2. `scripts/watchdog.mjs` 作为外层看门狗：每 30 秒检查 `autoplay.log` 的 mtime，超过 `--stall-min`（默认 3 分钟）没增长就 SIGKILL 播放器并重启
+
+**实测自愈**（2026-11-27）：
+
+```
+11:26:45  手动杀掉播放器 pid=127600（模拟卡死）
+11:27~29  看门狗检测日志 3 分钟没动 → 杀掉 → 重启
+11:30:05  播放器以新 pid=147120 继续跑，进度 2222 → 2837
+```
+
+## 第五个坑：PowerShell 传不了含空格路径的引号
+
+看门狗最初用 PowerShell 写，**四种方式全部失败**（仓库路径是 `D:\deep seek工作区3`）：
+
+| 方式 | 症状 |
+|---|---|
+| `Start-Process node -ArgumentList 数组` | 引号丢失 → node 收到截断路径 → `MODULE_NOT_FOUND` |
+| `Start-Process node -ArgumentList 字符串` | 引号被吞 → node 把 `--cpi` 当自己的选项 → `bad option: --cpi` |
+| `Start-Process cmd.exe /c ...` | `/c` 被吞 → cmd 进交互模式，只打印版本信息 |
+| `Start-Job` 包一层 powershell | 仍复现 cmd 交互模式 |
+
+**根因**：PS 5.1 的 `Start-Process` 无法把引号原样传给子进程；数组形式不会自动加引号，字符串形式又会吃掉引号。
+
+**解法：用 Node 写看门狗。**
+
+```js
+spawn('node', [PLAYER, '--port', '9222', '--course', '265874869', ...])
+```
+
+`child_process.spawn(command, argsArray)` 由 Node 自己做参数转义，**空格天然安全**。换成 Node 后一次成功。
+
+**可复用的结论**：Windows 上做进程编排，**Node 的 `spawn` 数组形式比 PowerShell 的 `Start-Process` 可靠**，尤其路径含空格时。别在 PS 里跟引号较劲。
 
 ## 启动流程
 
