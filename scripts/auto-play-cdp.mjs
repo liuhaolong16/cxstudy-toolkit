@@ -321,10 +321,14 @@ async function solveCaptchaOnce() {
   const tmpDir = path.join(ROOT, '.captcha-tmp');
   fs.mkdirSync(tmpDir, { recursive: true });
   const imgPath = path.join(tmpDir, `cap-${Date.now()}.png`);
+  // 固定文件名：OCR 失败时留给 Agent / 人看的就是这张
+  const latestPath = path.join(tmpDir, 'latest.png');
 
   try {
     const shot = await send('Page.captureScreenshot', { format: 'png', clip }, SID);
-    fs.writeFileSync(imgPath, Buffer.from(shot.data, 'base64'));
+    const buf = Buffer.from(shot.data, 'base64');
+    fs.writeFileSync(imgPath, buf);
+    fs.writeFileSync(latestPath, buf);
   } catch (e) {
     return { ok: false, reason: '截图失败: ' + e.message };
   }
@@ -544,6 +548,9 @@ async function main() {
         }
         if (!solved) {
           log(`⛔ OCR 已尝试 ${CAPTCHA_MAX_TRIES} 次未通过，不再重试（避免触发风控）`);
+          log(`📷 验证码截图已保存：${path.join(ROOT, '.captcha-tmp', 'latest.png')}`);
+          log(`🤖 下一步：Agent 介入——把这张图读出来，识别数字后用 CDP 填入输入框`);
+          log(`   （人在对话里说一句「验证码卡住了」，Agent 就会读图并填入）`);
         }
       }
 
