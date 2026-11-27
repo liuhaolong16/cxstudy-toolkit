@@ -52,3 +52,6 @@ autoplay.log.err
 
 .captcha-tmp/
 .cxstudy-tmp/
+
+# 测验临时数据（截图与答案，不进版本库）
+.cxstudy-questions/
