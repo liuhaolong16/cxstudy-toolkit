@@ -43,6 +43,8 @@ const LIMIT = num('limit', 0);
 const DRY = has('dry-run');
 const SAMPLE_MS = num('sample', 3000);
 const FINISH_RATIO = num('ratio', 0.55);
+// 文档/PDF 类任务点需要在页面停留的秒数（太短平台来不及记账）
+const DOC_WAIT_MS = num('doc-wait', 25) * 1000;
 
 if (!COURSE || !CLAZZ) {
   console.error('需要 --course 和 --clazz');
@@ -312,7 +314,18 @@ async function main() {
       const st = await controlVideo();
 
       if (!st || !st.found) {
-        log('本页没有 video（可能是文档/练习），回列表');
+        /**
+         * 没有 video = 文档 / PDF / 练习类任务点。
+         *
+         * 踩过的坑（2026-11-27）：原来这里立刻 navigate 回列表，页面停留不到 1 秒。
+         * 实测「第一节：教学内容」（PDF）要进去 3 次才记上账——说明平台要求页面
+         * 真正加载完成并停留一段时间，跳太快等于没打开。
+         *
+         * 现在先原地停留 --doc-wait 秒（默认 25），给它足够时间完成加载与上报。
+         */
+        log(`本页没有 video（文档/PDF），原地停留 ${DOC_WAIT_MS / 1000} 秒等它记账`);
+        await sleep(DOC_WAIT_MS);
+        log('停留结束，回列表');
         await navigate(COURSE_LIST_URL());
         continue;
       }
