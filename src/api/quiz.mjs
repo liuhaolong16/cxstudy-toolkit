@@ -155,19 +155,51 @@ export const SAVE_QUIZ_JS = `JSON.stringify((function(){
   return { ok: false, reason: '没找到「暂时保存」按钮' };
 })())`;
 
-/** 「提交」——只应在显式授权时调用 */
+/**
+ * 「提交」第一步：点页面底部的提交按钮。
+ *
+ * 注意：它只会弹出一个确认框（「您还有未完成的单选题，确认提交吗？」），
+ * 真正提交还要点弹窗里的 #popok —— 见 CONFIRM_SUBMIT_JS。
+ * 2026-11-28 实测：只点这一步，任务点不会变完成，成绩也不会出。
+ */
 export const SUBMIT_QUIZ_JS = `JSON.stringify((function(){
   var btns = document.querySelectorAll('a.btnSubmit, a[onclick*="btnBlueSubmit"]');
   for (var i = 0; i < btns.length; i++) {
     var el = btns[i];
     if (el.offsetParent === null) continue;
     try { el.click(); } catch (e) {}
-    return { ok: true, via: 'click', text: (el.innerText || '').trim() };
+    return { ok: true, via: 'click', text: (el.innerText || '').trim(), note: '已弹确认框，需再点 #popok' };
   }
   try {
-    if (typeof btnBlueSubmit === 'function') { btnBlueSubmit(); return { ok: true, via: 'fn' }; }
+    if (typeof btnBlueSubmit === 'function') { btnBlueSubmit(); return { ok: true, via: 'fn', note: '已弹确认框，需再点 #popok' }; }
   } catch (e) {}
   return { ok: false, reason: '没找到「提交」按钮' };
+})())`;
+
+/**
+ * 「提交」第二步：点确认弹窗的「提交」。
+ *
+ * 弹窗 DOM（实测）：
+ *   <div class="popBottom"><a id="popok" class="jb_btn jb_btn_92 fr fs14">提交</a></div>
+ *
+ * 点完这一步，页面会跳到成绩页，任务点才真正变成「已完成」。
+ */
+export const CONFIRM_SUBMIT_JS = `JSON.stringify((function(){
+  var el = document.querySelector('#popok');
+  if (el && el.offsetParent !== null) {
+    try { el.click(); } catch (e) {}
+    return { ok: true, via: '#popok', text: (el.innerText || '').trim() };
+  }
+  // 兜底：弹层里文字为「提交」的按钮
+  var cands = document.querySelectorAll('.popBottom a, .layui-layer-btn a, [class*="pop"] a');
+  for (var i = 0; i < cands.length; i++) {
+    var t = (cands[i].innerText || '').trim();
+    if (t === '提交' || t === '确定') {
+      try { cands[i].click(); } catch (e) {}
+      return { ok: true, via: 'fallback', text: t };
+    }
+  }
+  return { ok: false, reason: '没找到确认弹窗的「提交」(#popok)' };
 })())`;
 
 /**
