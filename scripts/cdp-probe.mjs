@@ -32,7 +32,9 @@ const arg = (name, def) => {
 const has = (name) => args.includes(`--${name}`);
 
 const port = Number(arg('port', 9222));
-const jsCode = arg('js', null);
+// --js-file 优先：PowerShell 传复杂 JS 时引号会被吃掉（老坑），落盘再读最稳
+const jsFile = arg('js-file', null);
+const jsCode = jsFile ? fs.readFileSync(jsFile, 'utf8') : arg('js', null);
 const navigateUrl = arg('navigate', null);
 const waitMs = Number(arg('wait', 0));
 
@@ -115,12 +117,30 @@ async function main() {
   await send('Page.enable', {}, sid);
   await send('Runtime.enable', {}, sid);
 
+  // --viewport WxH：覆写视口尺寸（例如 1920x1080）。
+  // Body 陷阱：Chrome 窗口最小化时 innerWidth/innerHeight 会变成 300x150，
+  // 此时 getBoundingClientRect 算出来的坐标全在可见区之外，截图只会得到空白。
+  const viewportArg = arg('viewport', null);
+  if (viewportArg) {
+    const m = String(viewportArg).match(/^(\d+)[xX](\d+)$/);
+    if (!m) fail('--viewport 需要形如 1920x1080');
+    const w = Number(m[1]);
+    const h = Number(m[2]);
+    await send('Emulation.setDeviceMetricsOverride', {
+      width: w,
+      height: h,
+      deviceScaleFactor: 1,
+      mobile: false,
+    }, sid);
+    console.log(JSON.stringify({ viewport: `${w}x${h}` }));
+  }
+
   if (navigateUrl) {
     await send('Page.navigate', { url: navigateUrl }, sid);
     await sleep(waitMs || 8000);
   }
 
-  // --screenshot <path>：整页截图；配合 --clip "x,y,w,h" 只截某一块（验证码就用这个）
+  // --screenshot <path>：整页截图；配合 --clip "x,y,w,h" 只截某一块（验证码/题目就用这个）
   const shotPath = arg('screenshot', null);
   if (shotPath) {
     const params = { format: 'png' };
@@ -133,9 +153,29 @@ async function main() {
         fail('--clip 需要 4 个数字：x,y,w,h');
       }
     }
-    const shot = await send('Page.captureScreenshot', params, sid);
-    fs.writeFileSync(shotPath, Buffer.from(shot.data, 'base64'));
-    console.log(JSON.stringify({ screenshot: shotPath, clip: params.clip || 'full' }));
+
+    /**
+     * Page.captureScreenshot 在本机实测会偶发超时（同一坐标三次里有时成功一次）。
+     * 对策：重试 4 次，间隔 1000ms；参数保持默认（实测加 fromSurface:false 反而更容易超时）。
+     * 作业页那种带倒计时/重绘的页面最容易卡，所以重试是必须的。
+     */
+    let lastErr = null;
+    let saved = false;
+    for (let attempt = 1; attempt <= 4; attempt++) {
+      try {
+        const shot = await send('Page.captureScreenshot', params, sid);
+        fs.writeFileSync(shotPath, Buffer.from(shot.data, 'base64'));
+        console.log(JSON.stringify({ screenshot: shotPath, clip: params.clip || 'full', attempt }));
+        saved = true;
+        break;
+      } catch (e) {
+        lastErr = e;
+        if (attempt < 4) await new Promise((r) => setTimeout(r, 1000));
+      }
+    }
+    if (!saved) {
+      fail(`截图 4 次均失败: ${lastErr && lastErr.message ? lastErr.message : lastErr}`);
+    }
   }
 
   if (jsCode) {
