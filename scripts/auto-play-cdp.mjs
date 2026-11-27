@@ -25,6 +25,9 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
+import { fetchJobs, finishDocumentJob, finishReadJob } from '../src/api/job.mjs';
+import { sendHeartbeat } from '../src/api/heartbeat.mjs';
+
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 
 const args = process.argv.slice(2);
@@ -68,6 +71,10 @@ const CAPTCHA_OCR = !has('no-ocr');
 const AI_WAIT_MS = num('ai-wait', 120) * 1000;
 /** 是否启用 AI 求助（--no-ai 可关） */
 const AI_HELP = !has('no-ai');
+/** 是否发真人属性心跳（--no-heartbeat 可关） */
+const HEARTBEAT = !has('no-heartbeat');
+/** 是否优先用 API 完成文档/阅读任务点（--no-api 可关，退回纯浏览器路径） */
+const USE_API = !has('no-api');
 
 if (!COURSE || !CLAZZ) {
   console.error('需要 --course 和 --clazz');
@@ -486,6 +493,69 @@ async function askAiForCaptcha(currentUrl) {
   return null;
 }
 
+/**
+ * Phase 1.1：用 API 完成文档/阅读任务点。
+ *
+ * 为什么这么做：实测靠「进页面 → 滚到底 → 停留」让文档记账，一次要几十秒，
+ * 而且经常要进去好几次。同类项目揭示了机制——文档任务本身就是一个 GET
+ * （/ananas/job/document），滚动只是在碰巧触发页面自己的上报。
+ *
+ * 失败一律返回 false，由调用方降级到浏览器路径。不抛错。
+ */
+async function tryFinishDocViaApi(chapterId) {
+  try {
+    log(`  尝试 API 路径（knowledge/cards → ananas/job）`);
+    const { jobs, notOpen, error } = await fetchJobs({
+      courseId: COURSE,
+      clazzId: CLAZZ,
+      cpi: CPI,
+      knowledgeId: chapterId,
+    });
+
+    if (error) {
+      log(`  ✗ 读 cards 失败：${error}，降级到浏览器路径`);
+      return false;
+    }
+    if (notOpen) {
+      log(`  ✗ 章节未开放，降级到浏览器路径`);
+      return false;
+    }
+    if (!jobs.length) {
+      log(`  ✗ cards 里没有未完成任务点，降级到浏览器路径`);
+      return false;
+    }
+
+    const docJobs = jobs.filter((j) => j.type === 'document');
+    const readJobs = jobs.filter((j) => j.type === 'read');
+    log(`  cards 返回 ${jobs.length} 个任务点（文档 ${docJobs.length}，阅读 ${readJobs.length}）`);
+
+    let done = 0;
+    for (const job of docJobs) {
+      const r = await finishDocumentJob({ courseId: COURSE, clazzId: CLAZZ, job });
+      if (r.ok) {
+        done++;
+        log(`  ✓ 文档 ${job.jobid} 已完成（API）`);
+      } else {
+        log(`  ✗ 文档 ${job.jobid} 失败：${r.reason}`);
+      }
+    }
+    for (const job of readJobs) {
+      const r = await finishReadJob({ courseId: COURSE, clazzId: CLAZZ, knowledgeId: chapterId, job });
+      if (r.ok) {
+        done++;
+        log(`  ✓ 阅读 ${job.jobid} 已完成（API）`);
+      } else {
+        log(`  ✗ 阅读 ${job.jobid} 失败：${r.reason}`);
+      }
+    }
+
+    return done > 0;
+  } catch (e) {
+    log(`  ✗ API 路径异常：${e.message}，降级到浏览器路径`);
+    return false;
+  }
+}
+
 const COURSE_LIST_URL = () =>
   `https://mooc2-ans.chaoxing.com/mooc2-ans/mycourse/studentcourse?courseid=${COURSE}&clazzid=${CLAZZ}&cpi=${CPI}&ut=s`;
 
@@ -574,6 +644,9 @@ const played = [];
  */
 let lastPct = -1;
 let lastPctChangeAt = 0;
+
+/** 当前所在的章节 knowledgeId（进章节时记录，供 API 路径与心跳使用） */
+let currentChapterId = null;
 
 async function main() {
   await connect();
@@ -736,7 +809,21 @@ async function main() {
       const target = unfinished[0];
       const r = await enterChapter(target.challengeId);
       log(`进入 ${target.text} → ${r}`);
+      currentChapterId = target.challengeId;
       await sleep(9000);
+
+      // 进章节后补一次真人属性打点（失败静默，不影响主流程）
+      if (HEARTBEAT) {
+        const hb = await sendHeartbeat({
+          courseId: COURSE,
+          clazzId: CLAZZ,
+          cpi: CPI,
+          chapterId: target.challengeId,
+        });
+        if (hb.ok) log(`  心跳已发（${hb.status}）`);
+        else log(`  心跳未发：${hb.reason || hb.status}`);
+      }
+
       processed++;
       continue;
     }
@@ -751,16 +838,29 @@ async function main() {
          *
          * 踩过的坑（2026-11-27）：
          * ① 原来立刻 navigate 回列表，页面停留不到 1 秒，同一节要进 3 次才记上账；
-         * ② 改成停留 25 秒仍然不肯记账 —— 用户指出这类任务点要求「下翻看完」，
-         *    只停在顶部不算。
+         * ② 改成停留 25 秒仍然不肯记账 —— 用户指出这类任务点要求「下翻看完」；
+         * ③ 滚到底确实能记上账（31/40 → 32/40 实测）。
          *
-         * 现在：先滚到底（8 轮 × 2 秒，给懒加载留时间），再原地停留一会儿，最后回列表。
+         * 但从同类项目学到：平台自己的文档任务就是一个 GET 请求，
+         * 滚动只是在碰巧触发页面自己的上报逻辑。所以现在优先走 API，
+         * 失败才降级到滚动（保留原有能力，不赌单一方案）。
          */
-        log(`本页没有 video（文档/PDF），开始滚动看完全文`);
+        if (USE_API && currentChapterId) {
+          const ok = await tryFinishDocViaApi(currentChapterId);
+          if (ok) {
+            log('API 路径已完成，回列表');
+            currentChapterId = null;
+            await navigate(COURSE_LIST_URL());
+            continue;
+          }
+        }
+
+        log(`本页没有 video（文档/PDF），降级：滚动看完全文`);
         await scrollToBottom(8, 2000);
         log(`滚动结束，再停留 ${DOC_WAIT_MS / 1000} 秒`);
         await sleep(DOC_WAIT_MS);
         log('回列表');
+        currentChapterId = null;
         await navigate(COURSE_LIST_URL());
         continue;
       }

@@ -23,7 +23,7 @@
     "node": ">=22.0.0"
   },
   "scripts": {
-    "test": "node --test test/",
+    "test": "node --test test/*.test.mjs",
     "check": "node src/cli.mjs check",
     "scan": "node scripts/scan-secrets.mjs",
     "mcp": "node mcp/server.mjs"
