@@ -226,6 +226,41 @@ async function scrollToBottom(rounds = 8, intervalMs = 2000) {
   }
 }
 
+/**
+ * 检测是否被验证码/人机校验拦住。
+ *
+ * 为什么不能硬撞：撞上验证码还继续「回列表→再进节」，只会反复触发风控，
+ * 从图形验证码升级成滑块、再到封号。正确做法是停下等人处理。
+ *
+ * 这里只做检测，不做任何自动破解。
+ */
+async function detectChallenge() {
+  try {
+    return await evaluateJson(`JSON.stringify((function(){
+      var signals = [];
+      var url = location.href || '';
+      var txt = document.body ? document.body.innerText : '';
+      if (/captcha|verifycode|validatecode|challenge/i.test(url)) signals.push('url');
+      if (/验证码|请完成.{0,6}验证|人机验证|滑动验证|安全验证|拖动.{0,4}滑块/.test(txt)) signals.push('text');
+      try {
+        if (document.querySelector('#captcha, .captcha, [id*="captcha"], [class*="captcha"]')) signals.push('dom');
+      } catch (e) {}
+      try {
+        var fs = document.querySelectorAll('iframe');
+        for (var i = 0; i < fs.length; i++) {
+          var src = String(fs[i].src || '');
+          if (/captcha|verify/i.test(src)) { signals.push('iframe'); break; }
+        }
+      } catch (e) {}
+      return { blocked: signals.length > 0, signals: signals, url: url.slice(0, 140) };
+    })())`);
+  } catch (e) {
+    // 检测本身失败不能当成「没验证码」，但也不能因此停机
+    log(`  验证码检测失败: ${e.message}`);
+    return { blocked: false, signals: [], error: e.message };
+  }
+}
+
 const COURSE_LIST_URL = () =>
   `https://mooc2-ans.chaoxing.com/mooc2-ans/mycourse/studentcourse?courseid=${COURSE}&clazzid=${CLAZZ}&cpi=${CPI}&ut=s`;
 
@@ -320,6 +355,42 @@ async function main() {
     }
 
     const url = await currentUrl();
+
+    /**
+     * 验证码检测放在最前面，先于一切导航/滚动。
+     *
+     * 撞上验证码还继续「回列表→再进节」只会反复撞风控，从图形验证码升级到
+     * 滑块再到封号。这里检测到就停下来等人。
+     *
+     * 关键细节：等待期间必须持续写日志，否则 watchdog 会以为播放器卡死
+     * （它按 autoplay.log 的 mtime 判断），3 分钟后把进程杀掉重启。
+     */
+    const challenge = await detectChallenge();
+    if (challenge && challenge.blocked) {
+      log(`⚠ 检测到验证码/人机校验：${(challenge.signals || []).join(',')}`);
+      log(`   页面：${challenge.url}`);
+      log(`   已暂停等待人工处理（最多等 30 分钟，不自动破解）`);
+
+      let waited = 0;
+      let cleared = false;
+      while (waited < 30 * 60 * 1000) {
+        await sleep(30_000);
+        waited += 30_000;
+        // 这行同时承担两个作用：告诉人还在等 + 刷新日志 mtime 喂 watchdog
+        log(`   仍在等待验证码…（已等 ${Math.round(waited / 60_000)} 分钟）`);
+        const again = await detectChallenge();
+        if (again && !again.blocked) {
+          log(`✅ 验证码已清除（等待 ${Math.round(waited / 1000)} 秒），继续`);
+          cleared = true;
+          break;
+        }
+      }
+      if (!cleared) {
+        log(`⏱ 等待超时 30 分钟，验证码仍在。请人工处理后重启看门狗。`);
+        break;
+      }
+      continue;
+    }
 
     /**
      * 页面判定要用精确正则，不能用 includes('/stu')。
