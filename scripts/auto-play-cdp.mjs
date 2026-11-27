@@ -176,6 +176,56 @@ async function currentUrl() {
 
 /* ---------------- 页面内动作 ---------------- */
 
+/**
+ * 把页面滚到底（含 iframe 内的滚动容器）。
+ *
+ * PDF / 文档类任务点要求「下翻看完」才记账，光停留不算。
+ * 这里的做法是：每一轮把 window 和所有可滚动元素滚到底，
+ * 循环若干轮，给懒加载内容留出加载时间。
+ */
+async function scrollToBottom(rounds = 8, intervalMs = 2000) {
+  for (let i = 0; i < rounds; i++) {
+    try {
+      await evaluate(`(function(){
+        function scrollEl(el) {
+          try {
+            if (!el || el.scrollHeight === undefined) return;
+            if (el.scrollHeight > el.clientHeight + 20 && el.clientHeight > 60) {
+              el.scrollTop = el.scrollHeight;
+            }
+          } catch (e) {}
+        }
+        function walk(doc, depth) {
+          if (depth > 5) return;
+          // documentElement / body 必须单独处理：PDF 视图的内容容器往往就是
+          // iframe 里的 <html> 本身（实测 top/0/0/1 的 scrollHeight 19642，
+          // 只查 div/section/article/main 完全找不到它）。
+          try { scrollEl(doc.documentElement); } catch (e) {}
+          try { scrollEl(doc.body); } catch (e) {}
+          // 再扫一遍常见块级容器（懒加载的内容层）
+          try {
+            var all = doc.querySelectorAll('div,section,article,main,pre,ul,ol,table');
+            for (var i = 0; i < all.length && i < 300; i++) scrollEl(all[i]);
+          } catch (e) {}
+          // 递归进 iframe（同源才拿得到 contentDocument）
+          try {
+            var frames = doc.querySelectorAll('iframe');
+            for (var j = 0; j < frames.length; j++) {
+              try { if (frames[j].contentDocument) walk(frames[j].contentDocument, depth + 1); } catch (e) {}
+            }
+          } catch (e) {}
+        }
+        walk(document, 0);
+        try { window.scrollTo(0, document.body.scrollHeight); } catch (e) {}
+        return 'ok';
+      })()`);
+    } catch (e) {
+      log(`  滚动第 ${i + 1} 轮失败: ${e.message}`);
+    }
+    await sleep(intervalMs);
+  }
+}
+
 const COURSE_LIST_URL = () =>
   `https://mooc2-ans.chaoxing.com/mooc2-ans/mycourse/studentcourse?courseid=${COURSE}&clazzid=${CLAZZ}&cpi=${CPI}&ut=s`;
 
@@ -317,15 +367,18 @@ async function main() {
         /**
          * 没有 video = 文档 / PDF / 练习类任务点。
          *
-         * 踩过的坑（2026-11-27）：原来这里立刻 navigate 回列表，页面停留不到 1 秒。
-         * 实测「第一节：教学内容」（PDF）要进去 3 次才记上账——说明平台要求页面
-         * 真正加载完成并停留一段时间，跳太快等于没打开。
+         * 踩过的坑（2026-11-27）：
+         * ① 原来立刻 navigate 回列表，页面停留不到 1 秒，同一节要进 3 次才记上账；
+         * ② 改成停留 25 秒仍然不肯记账 —— 用户指出这类任务点要求「下翻看完」，
+         *    只停在顶部不算。
          *
-         * 现在先原地停留 --doc-wait 秒（默认 25），给它足够时间完成加载与上报。
+         * 现在：先滚到底（8 轮 × 2 秒，给懒加载留时间），再原地停留一会儿，最后回列表。
          */
-        log(`本页没有 video（文档/PDF），原地停留 ${DOC_WAIT_MS / 1000} 秒等它记账`);
+        log(`本页没有 video（文档/PDF），开始滚动看完全文`);
+        await scrollToBottom(8, 2000);
+        log(`滚动结束，再停留 ${DOC_WAIT_MS / 1000} 秒`);
         await sleep(DOC_WAIT_MS);
-        log('停留结束，回列表');
+        log('回列表');
         await navigate(COURSE_LIST_URL());
         continue;
       }
