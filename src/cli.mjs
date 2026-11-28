@@ -21,6 +21,7 @@ import { fetchSchedule, expandOccurrences, toICS, formatWeek, weekOfDate, lesson
 import { CHANNELS, notify } from './notify/channels.mjs';
 import { resolveConfig, saveConfig, describeConfig, CONFIG_PATH } from './notify/config.mjs';
 import { fetchNoticesPage, fetchAllNotices, pickWorkItems } from './api/notices.mjs';
+import { buildDossier, filterWorksByCourse, filterExamsByCourse } from './study/dossier.mjs';
 import { ChromeSession } from './browser/cdp.mjs';
 import { playKnowledge, inspectKnowledge } from './browser/player.mjs';
 import { runGates, summarize } from './gates/index.mjs';
@@ -70,6 +71,7 @@ const USAGE = `
   cxa brief [--days 7]                    生成一段 Markdown 简报，粘给任何 AI（豆包/千问/WorkBuddy）
   cxa notify <channels|set|status|test|brief>  把简报推到手机（企业微信/飞书/钉钉/Server酱/PushPlus）
   cxa notices [--work] [--all] [--json]   通知中心（--work 只看作业/考试入口）
+  cxa exam --course <名> [--out <目录>]    备考档案：把课件/考试/作业/通知聚合成一份 Markdown
   cxa materials --course <名>              课程资料区
       --find <关键词>                      递归搜（配合 --download 一起下载）
       --download <目录>
@@ -730,6 +732,100 @@ async function cmdNotices() {
   return 0;
 }
 
+/**
+ * 备考档案：把一门课的课件、考试、作业、通知聚合成一份 Markdown。
+ *
+ * **不生成复习内容**——它只做聚合与排序。哪些是重点取决于老师考纲和你自己的
+ * 掌握程度，程序不知道；自称"自动生成重点"的工具在没有考纲时只能编，编出来的
+ * 重点会把复习方向带偏，比没有更糟。所以档案末尾附一段可粘给 AI 的提示词。
+ */
+async function cmdExam() {
+  const rc = await resolveCourseArg();
+  if (!rc.ok) {
+    log(`✖ ${rc.reason}`);
+    return 2;
+  }
+  const course = rc.course;
+
+  log(`正在收集「${course.name}」的资料…`);
+
+  // 四个来源并行拉，任一失败只降级不中断
+  const [matRes, exRes, ntRes, schRes] = await Promise.all([
+    listMaterials(course),
+    pendingExams(),
+    fetchNoticesPage(request),
+    fetchSchedule(request),
+  ]);
+
+  // collectAllFiles 是 async（要递归进子目录），必须 await —— 漏了会拿到 Promise，
+  // 表现出来是「课件 undefined 份」
+  const materials = matRes.ok ? await collectAllFiles(matRes.items, course) : [];
+  const exams = exRes.ok ? filterExamsByCourse(exRes.exams, course) : [];
+  const allWorks = ntRes.ok ? pickWorkItems(ntRes.notices) : [];
+  const works = filterWorksByCourse(allWorks, course);
+  const notices = ntRes.ok ? ntRes.notices : [];
+
+  // 课表用于"上课时间"一节
+  let meta = null;
+  if (schRes.ok) {
+    meta = { lessons: schRes.lessons };
+  }
+
+  const degraded = [];
+  if (!matRes.ok) degraded.push(`资料区（${matRes.reason}）`);
+  if (!exRes.ok) degraded.push(`考试（${exRes.reason}）`);
+  if (!ntRes.ok) degraded.push(`通知（${ntRes.reason}）`);
+  if (!schRes.ok) degraded.push(`课表（${schRes.reason}）`);
+
+  const md = buildDossier({ course, materials, exams, works, notices, meta });
+
+  // 统计给个摘要，让用户知道收集到了什么
+  log('');
+  log(`  课件 ${materials.length} 份`);
+  log(`  考试 ${exams.length} 场`);
+  log(`  作业 ${works.length} 条（全是这门课的）`);
+  log(`  通知 ${notices.length} 条（已按课程过滤）`);
+  if (degraded.length) log(`  ⚠ 降级：${degraded.join('、')}`);
+  log('');
+
+  const outDir = arg('out');
+  if (has('json')) {
+    log(JSON.stringify({ ok: true, course, materials, exams, works, degraded }, null, 2));
+    return 0;
+  }
+  if (outDir) {
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+    fs.mkdirSync(outDir, { recursive: true });
+    const safe = String(course.name).replace(/[\\/:*?"<>|]/g, '_');
+    const dest = path.join(outDir, `备考档案-${safe}.md`);
+    fs.writeFileSync(dest, md, 'utf8');
+    log(`✓ 已写入 ${dest}`);
+    log(`  ${Buffer.byteLength(md, 'utf8')} 字节`);
+    log('  粘给 AI 时建议附上档案末尾那段提示词。');
+  } else {
+    log(md);
+    log('');
+    log('提示：加 --out <目录> 写成文件');
+  }
+  return 0;
+}
+
+/** 递归收集资料区里所有文件（资料区有多层目录） */
+async function collectAllFiles(items, course, depth = 0, prefix = '') {
+  if (depth > 3) return [];
+  const out = [];
+  for (const it of items) {
+    if (it.kind === 'folder') {
+      const sub = await listMaterials(course, it);
+      if (sub.ok) out.push(...(await collectAllFiles(sub.items, course, depth + 1, `${prefix}${it.name}/`)));
+    } else {
+      out.push({ ...it, path: `${prefix}${it.name}` });
+    }
+  }
+  return out;
+}
+
 async function cmdMaterials() {
   const rc = await resolveCourseArg();
   if (!rc.ok) {
@@ -1008,6 +1104,8 @@ async function main() {
       return cmdNotify();
     case 'notices':
       return cmdNotices();
+    case 'exam':
+      return cmdExam();
     case 'play':
       return cmdPlay();
     case 'check':
