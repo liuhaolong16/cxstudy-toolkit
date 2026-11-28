@@ -81,6 +81,43 @@ export const LIST_QUESTIONS_JS = `JSON.stringify((function(){
 })())`;
 
 /**
+ * 算所有题目的包围盒（页面坐标）。
+ *
+ * 章节测验一页 10 题，高可达 3000px+，一屏（1080）装不下。原版只截一屏，
+ * 所以 AI 只能看到前 3-4 题。按全部题的 boundingRect 算一个大 clip，
+ * 配 `captureBeyondViewport: true` 一次截全 —— 比「滚动 + 拼接」简单且不会错位。
+ *
+ * **放在这里而不是 scripts/ 里**：scripts 是脚本，顶层就有副作用（一连 CDP 就发请求）。
+ * 纯函数放模块里才能被安全 import 与单测。
+ *
+ * @param {Array<{rect:{x:number,y:number,w:number,h:number}}>} questions
+ * @returns {{x:number,y:number,w:number,h:number}|null}
+ */
+export function quizClipRect(questions) {
+  if (!Array.isArray(questions) || !questions.length) return null;
+  let top = Infinity;
+  let bottom = -Infinity;
+  let left = Infinity;
+  let right = -Infinity;
+  for (const q of questions) {
+    const r = q && q.rect;
+    if (!r) continue;
+    top = Math.min(top, r.y);
+    bottom = Math.max(bottom, r.y + r.h);
+    left = Math.min(left, r.x);
+    right = Math.max(right, r.x + r.w);
+  }
+  if (!Number.isFinite(top) || bottom <= top) return null;
+  const pad = 20;
+  return {
+    x: Math.max(0, left - pad),
+    y: Math.max(0, top - pad),
+    w: right - left + pad * 2,
+    h: bottom - top + pad * 2,
+  };
+}
+
+/**
  * 生成「选中某题某几个选项」的页面脚本。
  *
  * @param {number} questionNo 1 基题号

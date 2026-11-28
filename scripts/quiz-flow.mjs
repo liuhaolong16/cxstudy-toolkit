@@ -87,33 +87,11 @@ function screenshot(outPath, clip) {
 /**
  * 算所有题目的包围盒（页面坐标）。
  *
- * 章节测验一页 10 题，高可达 3000px+，一屏（1080）装不下。原版只截一屏，
- * 所以 AI 只能看到前 3-4 题。现在按全部题的 boundingRect 算一个大 clip，
- * 配 captureBeyondViewport 一次截全 —— 比「滚动 + 拼接」简单且不会错位。
+ * 实现已移到 `src/api/quiz.mjs` —— 这里的脚本顶层有副作用（一连 CDP 就发请求），
+ * 纯函数留在脚本里就没法被别的脚本安全 import。这里保留一个转发导出，
+ * 让旧的调用方（以及 `quiz-flow` 自己的调用）不受影响。
  */
-function quizClipRect(questions) {
-  if (!questions.length) return null;
-  let top = Infinity;
-  let bottom = -Infinity;
-  let left = Infinity;
-  let right = -Infinity;
-  for (const q of questions) {
-    const r = q.rect;
-    if (!r) continue;
-    top = Math.min(top, r.y);
-    bottom = Math.max(bottom, r.y + r.h);
-    left = Math.min(left, r.x);
-    right = Math.max(right, r.x + r.w);
-  }
-  if (!Number.isFinite(top) || bottom <= top) return null;
-  const pad = 20;
-  return {
-    x: Math.max(0, left - pad),
-    y: Math.max(0, top - pad),
-    w: right - left + pad * 2,
-    h: bottom - top + pad * 2,
-  };
-}
+export { quizClipRect } from '../src/api/quiz.mjs';
 
 /* ---------------- 主流程 ---------------- */
 

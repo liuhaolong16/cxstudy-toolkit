@@ -55,3 +55,6 @@ autoplay.log.err
 
 # 测验临时数据（截图与答案，不进版本库）
 .cxstudy-questions/
+
+# 截图验证产物（verify-quiz-shot.mjs 生成）
+.quiz-shot-verify/
