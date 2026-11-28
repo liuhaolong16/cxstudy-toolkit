@@ -13,7 +13,7 @@
 | 看今天上什么课 | 几点、哪间教室、哪个老师，还有空闲时段 | `cxa schedule --today` |
 | 到点提醒上课 | 导进手机日历，提前 20 分钟响，**离线也响** | `cxa schedule --ics <目录>` |
 | 安排复习时间 | 未来 N 天的课 + 考试 + 各段空闲 | `cxa plan` |
-| 备考一门课 | 课件按章归组 + 考试倒计时 + 作业入口 + 老师通知，合成一份档案 | `cxa exam --course <名>` |
+| 备考一门课 | 课件按章归组 + 作业/课件证据分级 + 考试倒计时 + 老师通知，合成一份档案 | `cxa exam --course <名>` |
 | 找课件 | 递归搜、批量下载 | `cxa materials --find <词>` |
 | 看考试安排 | 未结束的考试、倒计时 | `cxa exams` |
 | 看作业 | 通知里的作业入口，每条都带可直接打开的链接 | `cxa notices --work` |
@@ -21,6 +21,9 @@
 | 刷课过任务点 | 后台静默连播视频 | `cxa play` |
 | 让 AI 帮你干 | 10 个 MCP 工具，或把简报粘给手机 AI | `cxa mcp` / `cxa brief` |
 | 推到手机 | 企业微信 / 飞书 / 钉钉 / Server酱 / PushPlus | `cxa notify brief` |
+| 查升学资讯 | 四六级 / 计算机等级 / 考研 / 考公 的官方入口与一般规律 | `cxa info cet` |
+| 加自己学校的源 | 给模板 + 提示词，让**你的 AI** 去拆解并复刻 | `cxa info sources` |
+| 看云盘 | 根目录列表（需浏览器，约 8 秒） | `cxa pan` |
 
 **14 个命令，10 个 MCP 工具，147 条单测。**
 
@@ -319,6 +322,7 @@ powershell -ExecutionPolicy Bypass -File scripts\install-extension.ps1
 | [`docs/PROGRESS-FINDINGS.md`](docs/PROGRESS-FINDINGS.md) | 任务点记账机制的实测结论 |
 | [`docs/EXTENSION.md`](docs/EXTENSION.md) | 浏览器扩展原理 |
 | [`docs/AI-CLIENT-INTEGRATION.md`](docs/AI-CLIENT-INTEGRATION.md) | 豆包/WorkBuddy/千问接入（带官方来源） |
+| [`docs/EXTERNAL-SOURCES.md`](docs/EXTERNAL-SOURCES.md) | **自己加外部数据源**的方法：模板、判断表、验真四件套 |
 | [`docs/QUIZ-AI-HELP.md`](docs/QUIZ-AI-HELP.md) | 章节测验读图作答的文件协议 |
 | [`docs/CAPTCHA-AI-HELP.md`](docs/CAPTCHA-AI-HELP.md) | 验证码转人工协助 |
 | [`docs/TOOLCHAIN.md`](docs/TOOLCHAIN.md) | 本机工具链与调试手法 |
