@@ -1899,6 +1899,17 @@ async function cmdQuiz() {
     log(`落点: ${String(finalUrl).slice(0, 120)}`);
     log(`标题: ${title}`);
 
+    // 平台有两种页面：\"作业作答\"（能填）与 \"作业详情\"（只读，可能已截止/已提交）。
+    // 两者都有 .TiMu，但详情页没有 ul.Zy_ulTop 选项容器 —— 直接抓会误报题目。
+    const isDetail = /详情/.test(String(title));
+    if (isDetail) {
+      log('');
+      log('⚠ 这是「作业详情」页（只读），不是「作业作答」页。');
+      log('  常见原因：该作业已截止 / 已提交 / 不允许再修改。');
+      log('  在这里取题或提交都不会生效。');
+      return 1;
+    }
+
     // ---- 取题 ----
     if (isDump) {
       const raw = await session.evaluate(LIST_QUESTIONS_JS);
@@ -1940,6 +1951,11 @@ async function cmdQuiz() {
       }
 
       const answerableCount = out.filter((q) => q.answerable).length;
+      if (answerableCount === 0) {
+        log('');
+        log('⚠ 这个作业一题都没有选项。常见于：计算题 / 实践报告 / 简答题。');
+        log('  这类题 cxa 提交不了（选项点选机制用不上），只能看截图自己写。');
+      }
       log('');
       log(`共 ${out.length} 题，其中 ${answerableCount} 题有选项（可自动答），${out.length - answerableCount} 题没选项（实践报告/简答，AI 也答不了）`);
       log('');
