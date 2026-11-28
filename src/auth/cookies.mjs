@@ -13,9 +13,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 
-export function homeDir() {
-  return process.env.CX_TOOLKIT_HOME || path.join(os.homedir(), '.cxstudy-toolkit');
-}
+import { homeDir } from '../paths.mjs';
+
+export { homeDir };
 
 export function cookiePath() {
   return process.env.CX_COOKIE_FILE || path.join(homeDir(), 'cookies.json');

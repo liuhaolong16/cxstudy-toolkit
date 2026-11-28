@@ -18,6 +18,8 @@ import { request, ENDPOINTS } from './api/client.mjs';
 import { listExams, pendingExams } from './api/exams.mjs';
 import { listMaterials, findMaterials, downloadMaterial } from './api/materials.mjs';
 import { fetchSchedule, expandOccurrences, toICS, formatWeek, weekOfDate, lessonsOnDate, freeSlotsOnDate } from './api/schedule.mjs';
+import { CHANNELS, notify } from './notify/channels.mjs';
+import { resolveConfig, saveConfig, describeConfig, CONFIG_PATH } from './notify/config.mjs';
 import { ChromeSession } from './browser/cdp.mjs';
 import { playKnowledge, inspectKnowledge } from './browser/player.mjs';
 import { runGates, summarize } from './gates/index.mjs';
@@ -65,6 +67,7 @@ const USAGE = `
       --alarm <分钟> / --no-alarm          提醒提前量，默认 20 分钟
   cxa plan [--days 14]                    时间规划：未来 N 天的课 + 考试 + 空闲
   cxa brief [--days 7]                    生成一段 Markdown 简报，粘给任何 AI（豆包/千问/WorkBuddy）
+  cxa notify <channels|set|status|test|brief>  把简报推到手机（企业微信/飞书/钉钉/Server酱/PushPlus）
   cxa materials --course <名>              课程资料区
       --find <关键词>                      递归搜（配合 --download 一起下载）
       --download <目录>
@@ -439,6 +442,80 @@ async function cmdPlan() {
  *
  * 输出刻意是 Markdown 而不是表格：AI 和人都好读，粘进聊天框不会散架。
  */
+/**
+ * 生成简报文本（Markdown）。cmdBrief 与 cxa notify 共用这一份，避免两条路各写一套。
+ */
+function buildBriefText(meta, lessons, occ, exams, days) {
+  const p = (n) => String(n).padStart(2, '0');
+  const dayNames = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const out = [];
+  const d0 = new Date(today);
+  out.push(`# ${d0.getFullYear()}-${p(d0.getMonth() + 1)}-${p(d0.getDate())} ${dayNames[d0.getDay()]} · 第 ${meta.currentWeek} 周`);
+  out.push('');
+  out.push(`学期：${meta.semesterLabel}　共 ${new Set(lessons.map((l) => l.name)).size} 门课 / ${lessons.length} 个时段`);
+  out.push('');
+
+  const todayLessons = lessonsOnDate(occ, today).filter((o) => o.startMin != null);
+  out.push('## 今天');
+  if (!todayLessons.length) {
+    out.push('没课。');
+  } else {
+    for (const o of todayLessons) {
+      out.push(`- ${o.lesson.startText}-${o.lesson.endText}　**${o.lesson.name}**　${o.lesson.location}　${o.lesson.teacher}`);
+    }
+    const locs = [...new Set(todayLessons.map((o) => o.lesson.location).filter(Boolean))];
+    if (locs.length > 1) out.push(`- ⚠ 今天在两个教室：${locs.join(' / ')}，注意换楼`);
+  }
+  out.push('');
+
+  const freeToday = freeSlotsOnDate(occ, today);
+  if (freeToday.length) {
+    const total = freeToday.reduce((s, x) => s + x.minutes, 0);
+    out.push(`空闲：${freeToday.map((s) => `${s.startText}-${s.endText}`).join(' · ')}（合计约 ${(total / 60).toFixed(1)} 小时）`);
+    out.push('');
+  }
+
+  out.push(`## 未来 ${days} 天`);
+  let any = false;
+  for (let i = 1; i < days; i++) {
+    const d = new Date(today);
+    d.setDate(d.getDate() + i);
+    const ls = lessonsOnDate(occ, d).filter((o) => o.startMin != null);
+    const dayExams = exams.filter(
+      (e) => e.start && e.start.getFullYear() === d.getFullYear() && e.start.getMonth() === d.getMonth() && e.start.getDate() === d.getDate(),
+    );
+    if (!ls.length && !dayExams.length) continue;
+    any = true;
+    out.push('');
+    out.push(`**${p(d.getMonth() + 1)}-${p(d.getDate())} ${dayNames[d.getDay()]}**`);
+    for (const e of dayExams) {
+      out.push(`- 🔴 考试 ${p(e.start.getHours())}:${p(e.start.getMinutes())}　${e.name}（${e.durationMin || '?'} 分钟）`);
+    }
+    for (const o of ls) {
+      out.push(`- ${o.lesson.startText}-${o.lesson.endText}　${o.lesson.name}　${o.lesson.location}`);
+    }
+  }
+  if (!any) out.push('没有课也没有考试。');
+  out.push('');
+
+  if (exams.length) {
+    out.push('## 考试倒计时');
+    for (const e of exams.slice(0, 10)) {
+      if (!e.start) continue;
+      const d = Math.ceil((new Date(e.start.getFullYear(), e.start.getMonth(), e.start.getDate()) - today) / 86400000);
+      out.push(
+        `- ${d === 0 ? '今天' : d > 0 ? `还有 ${d} 天` : `已过 ${-d} 天`}　${p(e.start.getMonth() + 1)}-${p(e.start.getDate())} ${p(e.start.getHours())}:${p(e.start.getMinutes())}　${e.name}`,
+      );
+    }
+    out.push('');
+  }
+
+  return out.join('\n');
+}
+
 async function cmdBrief() {
   const days = num('days', 7);
 
@@ -453,80 +530,8 @@ async function cmdBrief() {
   const ex = await pendingExams();
   const exams = ex.ok ? ex.exams : [];
 
-  const p = (n) => String(n).padStart(2, '0');
-  const dayNames = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-
-  const out = [];
-  const d0 = new Date(today);
-  out.push(`# ${d0.getFullYear()}-${p(d0.getMonth() + 1)}-${p(d0.getDate())} ${dayNames[d0.getDay()]} · 第 ${meta.currentWeek} 周`);
-  out.push('');
-  out.push(`学期：${meta.semesterLabel}　共 ${new Set(lessons.map((l) => l.name)).size} 门课 / ${lessons.length} 个时段`);
-  out.push('');
-
-  // 今天
-  const todayLessons = lessonsOnDate(occ, today).filter((o) => o.startMin != null);
-  out.push('## 今天');
-  if (!todayLessons.length) {
-    out.push('没课。');
-  } else {
-    for (const o of todayLessons) {
-      out.push(
-        `- ${o.lesson.startText}-${o.lesson.endText}　**${o.lesson.name}**　${o.lesson.location}　${o.lesson.teacher}`,
-      );
-    }
-    const locs = [...new Set(todayLessons.map((o) => o.lesson.location).filter(Boolean))];
-    if (locs.length > 1) out.push(`- ⚠ 今天在两个教室：${locs.join(' / ')}，注意换楼`);
-  }
-  out.push('');
-
-  const freeToday = freeSlotsOnDate(occ, today);
-  if (freeToday.length) {
-    const total = freeToday.reduce((s, x) => s + x.minutes, 0);
-    out.push(`空闲：${freeToday.map((s) => `${s.startText}-${s.endText}`).join(' · ')}（合计约 ${(total / 60).toFixed(1)} 小时）`);
-    out.push('');
-  }
-
-  // 未来 N 天（跳过今天）
-  out.push(`## 未来 ${days} 天`);
-  let any = false;
-  for (let i = 1; i < days; i++) {
-    const d = new Date(today);
-    d.setDate(d.getDate() + i);
-    const ls = lessonsOnDate(occ, d).filter((o) => o.startMin != null);
-    const dayExams = exams.filter(
-      (e) => e.start && e.start.getFullYear() === d.getFullYear() && e.start.getMonth() === d.getMonth() && e.start.getDate() === d.getDate(),
-    );
-    if (!ls.length && !dayExams.length) continue;
-    any = true;
-
-    out.push('');
-    out.push(`**${p(d.getMonth() + 1)}-${p(d.getDate())} ${dayNames[d.getDay()]}**`);
-    for (const e of dayExams) {
-      out.push(`- 🔴 考试 ${p(e.start.getHours())}:${p(e.start.getMinutes())}　${e.name}（${e.durationMin || '?'} 分钟）`);
-    }
-    for (const o of ls) {
-      out.push(`- ${o.lesson.startText}-${o.lesson.endText}　${o.lesson.name}　${o.lesson.location}`);
-    }
-  }
-  if (!any) out.push('没有课也没有考试。');
-  out.push('');
-
-  // 考试倒计时
-  if (exams.length) {
-    out.push('## 考试倒计时');
-    for (const e of exams.slice(0, 10)) {
-      if (!e.start) continue;
-      const d = Math.ceil((new Date(e.start.getFullYear(), e.start.getMonth(), e.start.getDate()) - today) / 86400000);
-      out.push(
-        `- ${d === 0 ? '今天' : d > 0 ? `还有 ${d} 天` : `已过 ${-d} 天`}　${p(e.start.getMonth() + 1)}-${p(e.start.getDate())} ${p(e.start.getHours())}:${p(e.start.getMinutes())}　${e.name}`,
-      );
-    }
-    out.push('');
-  }
-
-  const text = out.join('\n');
+  // 文本生成抽到 buildBriefText，cxa notify 也用它，避免两条路各写一套
+  const text = buildBriefText(meta, lessons, occ, exams, days);
 
   /**
    * 这里本来有个 --copy（直接进剪贴板）。
@@ -534,10 +539,128 @@ async function cmdBrief() {
    * 截断（只进去 12 个字符）；改用 powershell Set-Clipboard + [Console]::In.ReadToEnd()
    * 同样失败（剪贴板里留着旧内容，长度对不上）。
    * 删掉而不是留着 —— 一个"有时能复制"的开关比没有更糟，用户会以为内容在里面然后粘错。
-   * 正文照常打到 stdout，选中复制即可。
+   * 正文照常打到 stdout，选中复制即可。要用推送就走 cxa notify。
    */
   log(text);
   return 0;
+}
+
+/**
+ * 通知：把「今天上什么课」推到手机上。
+ *
+ * 这是三条提醒路里的第 ③ 条 —— 比 .ics 多一层（能推富文本、能推考试倒计时），
+ * 但要电脑开机。三条路都留着，用户按"不能漏的走 .ics、顺带看走的推"来选。
+ *
+ *   cxa notify channels         看有哪些通道、各自怎么拿 key
+ *   cxa notify set --channel wecom --key xxx    保存配置
+ *   cxa notify status           看当前配置（不打印 key 全文）
+ *   cxa notify test             发一条测试消息，确认通
+ *   cxa notify brief [--days 7] 把简报推到手机
+ */
+async function cmdNotify() {
+  const action = (process.argv[3] || 'status').toLowerCase();
+
+  if (action === 'channels') {
+    log('可用通道（都不需要装依赖）：\n');
+    for (const [id, ch] of Object.entries(CHANNELS)) {
+      log(`  ${id.padEnd(12)} ${ch.label}`);
+      log(`  ${' '.repeat(12)} ${ch.how}`);
+      log('');
+    }
+    log('拿到 key 后：cxa notify set --channel <通道> --key <key>');
+    log('然后：      cxa notify test');
+    return 0;
+  }
+
+  if (action === 'set') {
+    const patch = {};
+    if (arg('channel')) patch.channel = arg('channel');
+    if (arg('key')) patch.key = arg('key');
+    if (arg('webhook')) patch.webhook = arg('webhook');
+    if (arg('title')) patch.title = arg('title');
+    if (!Object.keys(patch).length) {
+      log('✖ 至少给一个：--channel / --key / --webhook / --title');
+      return 2;
+    }
+    if (patch.channel && !CHANNELS[patch.channel]) {
+      log(`✖ 未知通道「${patch.channel}」。可用：${Object.keys(CHANNELS).join(' / ')}`);
+      return 2;
+    }
+    const { path } = saveConfig(patch);
+    log(`✓ 已保存到 ${path}`);
+    log(describeConfig(resolveConfig()));
+    return 0;
+  }
+
+  if (action === 'status') {
+    const cfg = resolveConfig();
+    log('当前通知配置：');
+    log(describeConfig(cfg));
+    if (!cfg.channel || (!cfg.key && !cfg.webhook)) {
+      log('');
+      log('还没配好。先看有哪些通道：cxa notify channels');
+    }
+    return 0;
+  }
+
+  if (action === 'test') {
+    const cfg = resolveConfig();
+    if (!cfg.channel) {
+      log('✖ 还没设通道。先跑 cxa notify channels 挑一个');
+      return 2;
+    }
+    const text = `这是一条测试消息。\n\n如果你在手机上看到它，说明「cxa notify」这条路通了。\n时间：${new Date().toLocaleString('zh-CN')}`;
+    log(`正在通过 ${cfg.channel} 发送…`);
+    const r = await notify(cfg, text);
+    if (!r.ok) {
+      log(`✖ 发送失败：${r.reason}`);
+      log('');
+      log('排查顺序：');
+      log('  1. key 有没有复制全（前后别带空格）');
+      log('  2. 通道选的是不是当前 key 对应的那个');
+      log('  3. 群机器人有没有被踢出群 / 是否被限流');
+      return 1;
+    }
+    log('✓ 发送成功。去手机上看看有没有收到。');
+    return 0;
+  }
+
+  if (action === 'brief') {
+    const cfg = resolveConfig();
+    if (!cfg.channel) {
+      log('✖ 还没设通道。先跑 cxa notify channels');
+      return 2;
+    }
+    const days = num('days', 7);
+    const r = await fetchSchedule(request);
+    if (!r.ok) {
+      log(`✖ 读取课表失败：${r.reason}`);
+      return 1;
+    }
+    const { meta, lessons } = r;
+    const occ = expandOccurrences(meta, lessons);
+    const ex = await pendingExams();
+    const exams = ex.ok ? ex.exams : [];
+    const text = buildBriefText(meta, lessons, occ, exams, days);
+
+    if (has('dry-run')) {
+      log('（--dry-run：不发送，下面是会推出去的内容）\n');
+      log(text);
+      return 0;
+    }
+
+    log(`正在通过 ${cfg.channel} 推送简报…`);
+    const sent = await notify(cfg, text);
+    if (!sent.ok) {
+      log(`✖ 发送失败：${sent.reason}`);
+      return 1;
+    }
+    log('✓ 已推送。');
+    return 0;
+  }
+
+  log('用法：cxa notify <channels|set|status|test|brief>');
+  return 2;
 }
 
 async function cmdMaterials() {
@@ -814,6 +937,8 @@ async function main() {
       return cmdPlan();
     case 'brief':
       return cmdBrief();
+    case 'notify':
+      return cmdNotify();
     case 'play':
       return cmdPlay();
     case 'check':
