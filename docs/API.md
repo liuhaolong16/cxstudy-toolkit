@@ -128,3 +128,49 @@ const authFailed =
 ```
 
 这条规则踩过坑：最初把任意 302 都判成未认证，导致课程页误报 `authenticated: false`。
+
+---
+
+# 附：CLI `--json` 输出速查（AI 用这一节就够）
+
+> 上面是**接口层**（学习通返回什么）；这一节是**命令层**（`cxa --json` 返回什么）。
+>
+> **判据**：本节的键都是**实跑抓的**，不是照代码猜的。
+> 标「未验证」的表示需要登录态或浏览器，本轮没跑成 —— 用时先自己跑一次确认。
+
+## 顶层键一览
+
+| 命令 | 顶层键 | 验证状态 |
+|---|---|---|
+| `cxa audit --json` | `ok, groups, pass, fail, skip` | ✅ 实跑 |
+| `cxa check --json` | `ok, gates, summary` | ✅ 实跑（0.8.0 补的纯 JSON 输出） |
+| `cxa courses --json` | `ok, authenticated, count, courses` | ✅ 实跑 |
+| `cxa exams --json` | `ok, exams` | ✅ 实跑 |
+| `cxa notices --json` | `ok, notices` | ✅ 实跑 |
+| `cxa schedule --json` | `ok, meta, lessons, occurrences` | ✅ 实跑 |
+| `cxa pan --json` | `ok, total, items` | ✅ 实跑 |
+| `cxa chapters --json` | `ok, chapters, progress` | ⚠ 未验证（需浏览器） |
+| `cxa materials --json` | `ok, files, dirs` | ⚠ 未验证（需登录） |
+| `cxa exam --json` | `ok, course, evidence, degraded` | ⚠ 未验证（需登录） |
+| `cxa play` | — | ❌ **无 `--json`**（长时任务，输出进度文本） |
+
+## 没有 `--json` 的命令（别去试）
+
+| 命令 | 输出形态 |
+|---|---|
+| `cxa brief` | Markdown（它就是给 AI 直接粘的） |
+| `cxa plan` | 文本日程表 |
+| `cxa info <主题>` | Markdown / 文本 |
+| `cxa heal` | 自愈报告（人读） |
+| `cxa notify` | 文本（推送的是内部结果） |
+
+## 三态约定（所有 `--json` 通用）
+
+| 情况 | 表现 |
+|---|---|
+| 成功 | `ok: true` + 数据字段 |
+| 业务失败 | `ok: false` + `reason`，**退出码非 0** |
+| 判不了 | 字段为 `null` 或 `unknown`，**不编造** |
+
+**注意**：`check --json` 的 `gates[].status` 有三态 `pass/fail/skip`，
+**`skip` 不算通过** —— 它表示"这个门缺前置条件，判不了"。

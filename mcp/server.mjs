@@ -115,7 +115,9 @@ const tools = {
     description:
       '课程资料区。三种用法：①只给 courseId/classId → 列根目录；' +
       '②给 keyword → 递归搜索（匹配**完整路径**，所以搜「课件」能命中「课件PDF/xxx.pdf」）；' +
-      '③再给 saveDir → 把搜到的文件下载到本地。',
+      '③再给 saveDir → 把搜到的文件下载到本地。' +
+      '**③ 会写磁盘：下载前必须确认 saveDir 在哪个盘、要下多少文件、大概多大。**' +
+      '不用于：读/解析下载下来的文件内容（PDF 用 pdf 技能、Word 用 docx、Excel 用 xlsx）。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -325,7 +327,9 @@ const tools = {
 
   cx_play: {
     description:
-      '后台静默连播视频：只播 video 类型，题目/文档跳过并登记，全程静音。耗时≈视频总时长，不会加速。注意：播放成功不等于平台记账（详见 docs/PROGRESS-FINDINGS.md）。',
+      '后台静默连播视频：只播 video 类型，题目/文档跳过并登记，全程静音。耗时≈视频总时长，不会加速。注意：播放成功不等于平台记账（详见 docs/PROGRESS-FINDINGS.md）。' +
+      '**写类工具：会真实播放并写学习记录，执行前必须先告诉用户「要播哪门课/多少视频/大约几分钟」并得到确认。**' +
+      '不用于：想「快速刷完」——它不会加速；想「只看看有什么视频」——那用 cx_chapters。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -402,7 +406,11 @@ const tools = {
   },
 
   cx_http: {
-    description: '带登录 cookie 的只读请求（万能兜底）。用于调用未封装的接口。不要用它做写操作。',
+    description:
+      '带登录 cookie 的只读请求（万能兜底）。用于调用未封装的接口。不要用它做写操作。' +
+      '**只在下述情况用：已知要打的接口地址，且上面 9 个工具都没封装它。**' +
+      '不用于：任何已封装的读取（课程/章节/考试/资料/课表/通知/判据门都有专门工具，用它们更稳）；' +
+      '任何 POST/写操作；探测「网站通不通」（那用 cx_status）。',
     inputSchema: {
       type: 'object',
       properties: {

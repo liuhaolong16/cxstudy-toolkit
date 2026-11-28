@@ -40,6 +40,7 @@ import {
   renderUsageSection,
 } from './evolve/usage.mjs';
 import { runRecipes, renderHealReport } from './evolve/recipes.mjs';
+import { skillCoverage, judgeability, renderSkillHealth } from './evolve/skillhealth.mjs';
 
 const argv = process.argv.slice(2);
 
@@ -70,6 +71,25 @@ function fail(message, code = 1) {
 const USAGE = `
 超星学习通小助手 (chaoxing-assistant)
 
+**什么时候跑什么**（用户这么说 → 跑这个）：
+
+  「我有哪些课 / 这学期上什么」       → cxa courses
+  「进度多少 / 还差什么 / 任务点」     → cxa chapters --cid --clz
+  「什么时候考试 / 考试安排」         → cxa exams
+  「今天有什么课 / 下节课在哪」       → cxa schedule --today
+  「帮我排一下 / 最近有什么安排」     → cxa plan
+  「复习 / 备考 / 考纲范围」          → cxa exam --course <名>
+  「有作业吗 / 通知里说什么」         → cxa notices --work
+  「课件在哪 / 下载资料」             → cxa materials
+  「挂后台播 / 刷完课 / 过任务点」    → cxa play（**写类：先告诉用户要播多少、约几分钟**）
+  「四六级 / 考研 / 考公的官方入口」   → cxa info
+  「云盘里有什么」                    → cxa pan
+  「播放了但进度没涨 / 报错了」       → cxa check（先跑这个，别猜）
+  「文档说的对不对 / 版本号」         → cxa audit
+
+  **不用于**：通用 PDF/Office/浏览器任务（pdf / docx / xlsx / agent-browser）、
+           代写作业、考试中答题。判据：任务里有没有「超星/学习通这个平台」。
+
 用法：
   cxa auth login                      打开浏览器手动登录并保存 cookie
   cxa auth status                     检查当前会话是否可用
@@ -97,6 +117,7 @@ const USAGE = `
   cxa audit [--json] [--fix] [--with-tests]   交付面审计：文档数字/清单/过时结论 vs 实现
   cxa heal [--apply --yes] [--commit]     自愈：按配方自动改代码（默认预演，不碰文件）
       --with-tests                        连文档数字一起修（跑单测 + 自检，约 60 秒）
+  cxa feedback ok|bad [理由]              标记这次用得对不对（Skill 健康统计用）
   cxa mcp                                 以 MCP server 方式运行（stdio）
 
 play 选项：
@@ -1475,8 +1496,45 @@ async function cmdAudit() {
       const dg = digestUsage(recs);
       log('');
       log(renderUsageSection(dg, usageAdvice(dg)));
+
+      // Skill 健康：能算的算，判不了的显形（绝不冒充通过）
+      const cov = skillCoverage(recs, manifest.capabilities);
+      const feedback = recs.filter((r) => r.feedback === 'ok' || r.feedback === 'bad').map((r) => ({ value: r.feedback }));
+
+      // 格式通过率是**可自动**的，所以真的去跑一遍（只跑不需登录的那几个，
+      // 需要浏览器的跑了会拖慢 30 秒以上，没跑的就落在 notJudgeable 里）
+      const formatResults = [];
+      for (const [cmd, args, requiredKeys] of [
+        ['audit', ['audit', '--json'], ['ok', 'groups', 'pass', 'fail', 'skip']],
+        ['check', ['check', '--json'], ['ok', 'gates', 'summary']],
+        ['courses', ['courses', '--json'], ['ok', 'courses']],
+      ]) {
+        try {
+          const { spawnSync } = await import('node:child_process');
+          const r = spawnSync(process.execPath, [path.join(cwd, 'src/cli.mjs'), ...args], {
+            cwd,
+            encoding: 'utf8',
+            timeout: 60_000,
+          });
+          const out = (r.stdout || '').trim();
+          let parsed = null;
+          try {
+            parsed = JSON.parse(out);
+          } catch {
+            /* 解析失败下面统一处理 */
+          }
+          const missing = parsed ? requiredKeys.filter((k) => !(k in parsed)) : ['JSON.parse'];
+          formatResults.push({ cmd, ok: !!parsed && missing.length === 0, missing });
+        } catch {
+          formatResults.push({ cmd, ok: false, missing: ['执行失败'] });
+        }
+      }
+
+      const health = judgeability({ records: recs, feedback, formatResults });
+      log('');
+      log(renderSkillHealth(cov, health));
     } catch {
-      /* 使用观察失败不影响审计结论 */
+      /* 使用观察/Skill 健康失败不影响审计结论 */
     }
 
     log('');
@@ -1633,6 +1691,61 @@ async function cmdHeal() {
   return 0;
 }
 
+/**
+ * `cxa feedback <ok|bad> [理由]` —— 显式标记「这次用得对不对」。
+ *
+ * ## 为什么需要它
+ *
+ * `usage.jsonl` 只记「命令跑了」，不记「跑得对不对」。
+ * 比如用户问「学习通有什么课」，AI 跑了 `cxa info cet`（用错了）——
+ * usage 里有一条记录，但它不是一次成功使用。
+ *
+ * **这是唯一能半自动拿到「任务成功率」的路**，因为没有别的信号源。
+ *
+ * ## 它的局限（必须说清，不夸大）
+ *
+ * **需要调用者主动调**。AI 不调、用户不调，就永远是零记录。
+ * 所以覆盖率取决于自觉，**不能当完整统计**。
+ * `judgeability()` 里已经处理了：样本 < 5 条时返回 `notJudgeable`，不给百分比。
+ */
+async function cmdFeedback() {
+  const args = argv.slice(1);
+  const verdict = (args[0] || '').toLowerCase();
+  const reason = args.slice(1).join(' ').trim();
+
+  if (verdict !== 'ok' && verdict !== 'bad') {
+    log(`标记一次使用的好坏（用于 Skill 健康统计）。
+
+用法：
+  cxa feedback ok              这次用得对
+  cxa feedback bad [理由]      这次用错了（理由会脱敏后记录）
+
+说明：
+  写进本机 usage.jsonl 的 feedback 字段，不上报、不联网。
+  **需要主动调** —— 不调就没有数据，统计覆盖率取决于自觉。
+  只有 ≥5 条反馈时才会算成功率，少了会显示「样本不足」。`);
+    return 1;
+  }
+
+  const rec = makeRecord({
+    cmd: 'feedback',
+    ok: verdict === 'ok',
+    ms: 0,
+    degraded: [],
+    reason, // makeRecord 内部会脱敏
+  });
+  rec.feedback = verdict;
+
+  const ok = appendRecord(homeDir(), rec);
+  if (!ok) {
+    log('✗ 写入失败（可能是配置目录不可写）');
+    return 1;
+  }
+  log(verdict === 'ok' ? '✓ 已记为「用得对」' : '✓ 已记为「用错了」');
+  log('  下次 `cxa audit` 时会在「Skill 健康」一节里统计（≥5 条才算）。');
+  return 0;
+}
+
 async function cmdCheck() {
   const courseId = num('cid');
   const classId = num('clz');
@@ -1664,6 +1777,24 @@ async function cmdCheck() {
 
   try {
     const results = await runGates({ context });
+
+    // `--json` 时**只**输出结构化的门结果，不混文本（否则下游解析会切错段落）
+    if (has('json')) {
+      const summary = summarize(results);
+      log(
+        JSON.stringify(
+          {
+            ok: summary.fail === 0,
+            gates: results.map((r) => ({ id: r.id, status: r.status, message: r.message, evidence: r.evidence || {} })),
+            summary,
+          },
+          null,
+          2,
+        ),
+      );
+      return summary.fail > 0 ? 3 : 0;
+    }
+
     for (const r of results) {
       const mark = r.status === 'pass' ? '✓' : r.status === 'fail' ? '✖' : '○';
       log(`${mark} ${r.id.padEnd(10)} ${r.message}`);
@@ -1727,6 +1858,8 @@ async function main() {
       return cmdAudit();
     case 'heal':
       return cmdHeal();
+    case 'feedback':
+      return cmdFeedback();
     case 'mcp': {
       await import('../mcp/server.mjs');
       return null; // mcp server 自己接管进程

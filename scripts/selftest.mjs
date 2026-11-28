@@ -97,7 +97,7 @@ record('USAGE 有命令', declared.length > 0, `${declared.length} 个：${decla
 
 // 每个命令用一个不可能成功的调用探一下：能进到命令自己的逻辑（而不是落到 default 分支打印 USAGE）
 // 就能证明路由接上了。用 --help 这类不存在的参数不会触发网络。
-const KNOWN_HANDLERS = new Set(['auth', 'courses', 'chapters', 'exams', 'schedule', 'plan', 'brief', 'notify', 'notices', 'exam', 'info', 'pan', 'materials', 'play', 'check', 'audit', 'heal', 'mcp']);
+const KNOWN_HANDLERS = new Set(['auth', 'courses', 'chapters', 'exams', 'schedule', 'plan', 'brief', 'notify', 'notices', 'exam', 'info', 'pan', 'materials', 'play', 'check', 'audit', 'heal', 'feedback', 'mcp']);
 const missingRoute = declared.filter((c) => !KNOWN_HANDLERS.has(c));
 record('命令都有处理器', missingRoute.length === 0, missingRoute.length ? `未接路由：${missingRoute.join(', ')}` : '全部接上');
 
@@ -246,6 +246,67 @@ const manifestCli = [
     manifest.pkgVersion === pkg.version
       ? `package.json 与 manifest 都是 ${pkg.version}`
       : `漂移了：package.json=${pkg.version}，manifest=${manifest.pkgVersion}`,
+  );
+}
+
+// (8f) MCP 层触发边界：write 类与易误用工具必须有反向约束
+//
+// **为什么只查这几个**：其余是纯只读，误用代价低（最多多跑一次）。
+// 改多了会让 description 变长、稀释信号 —— 这里刻意不是"全部 10 个都要"。
+{
+  const mcpSrcBoundary = fs.readFileSync(path.join(ROOT, 'mcp/server.mjs'), 'utf8');
+  const mustHaveBoundary = [
+    ['cx_play', '写类：会真实播放并写学习记录'],
+    ['cx_http', '万能兜底：最易被滥用'],
+    ['cx_materials', '下载会写磁盘'],
+  ];
+  const bad = [];
+  for (const [tool, why] of mustHaveBoundary) {
+    const idx = mcpSrcBoundary.indexOf(tool + ': {');
+    if (idx < 0) {
+      bad.push(tool + ' 找不到定义');
+      continue;
+    }
+    const chunk = mcpSrcBoundary.slice(idx, idx + 900);
+    if (!/不用于|不要用它|必须.{0,8}确认|执行前必须/.test(chunk)) {
+      bad.push(tool + '（' + why + '）没写反向约束');
+    }
+  }
+  record(
+    'MCP 工具写了反向约束',
+    bad.length === 0,
+    bad.length ? bad.join('；') : mustHaveBoundary.length + ' 个高风险工具都有「什么时候别用」',
+  );
+}
+
+// (8g) Skill 层触发边界：frontmatter 必须有反例
+// router 只看 frontmatter，正文里的「不用于」对它无效。
+{
+  const skillPath = path.join(ROOT, 'dsh/skills/cxstudy/SKILL.md');
+  if (!fs.existsSync(skillPath)) {
+    record('Skill description 含反例', false, 'SKILL.md 不存在');
+  } else {
+    const skill = fs.readFileSync(skillPath, 'utf8');
+    const front = skill.match(/^---[\s\S]*?---/);
+    const hasNeg = front && /不用于/.test(front[0]);
+    record(
+      'Skill description 含反例',
+      !!hasNeg,
+      hasNeg ? 'frontmatter 里有「不用于」' : 'frontmatter 缺「不用于」——router 看不到正文里的反例',
+    );
+  }
+}
+
+// (8h) 接口层：manifest 每条能力必须有 inputs 与 returns
+{
+  const manifestIo = JSON.parse(fs.readFileSync(path.join(ROOT, 'manifest.json'), 'utf8'));
+  const missingIo = manifestIo.capabilities.filter((c) => !c.inputs || !c.returns);
+  record(
+    '能力都写了 inputs/returns',
+    missingIo.length === 0,
+    missingIo.length
+      ? '缺字段：' + missingIo.map((c) => c.id).join('、')
+      : manifestIo.capabilities.length + ' 条都有入参/返回约定',
   );
 }
 

@@ -86,7 +86,7 @@ dsh/skills/cxstudy/SKILL.md            DSH 技能（操作手册）
 `cxa check` 跑 5 道门（env / auth / target / progress / readonly）。红项必须带 `evidence`，
 不允许只给布尔。`skip` 不等于通过。
 
-全量自检 `node scripts/selftest.mjs` 检查 **13 项**：
+全量自检 `node scripts/selftest.mjs` 检查 **16 项**：
 
 | 阶段 | 查什么 |
 |---|---|
@@ -97,9 +97,9 @@ dsh/skills/cxstudy/SKILL.md            DSH 技能（操作手册）
 | 5 | MCP 工具数 == 10（真跑一次 `tools/list`） |
 | 6 | 关键文档都在且非空 |
 | 7 | 配置目录可解析 |
-| 8 | **交付层一致性门（5 条）** |
+| 8 | **交付层一致性门（8 条）** |
 
-**第 8 阶段 = 迭代接口，五条机械比对**：
+**第 8 阶段 = 迭代接口，八条机械比对**：
 
 1. `manifest.capabilities[].cli` 的子命令集合 **==** `src/cli.mjs` 的 `case '<name>':` 集合（双向）
 2. `manifest.capabilities[].mcp` 集合 **==** `mcp/server.mjs` 运行时 `tools/list` 返回的工具名（双向）
@@ -107,6 +107,11 @@ dsh/skills/cxstudy/SKILL.md            DSH 技能（操作手册）
 4. `manifest.pkgVersion` **==** `package.json` 的 `version`
 5. **交付面审计**（调 `src/audit/rules.mjs` 的 `auditAll`）：文档数字 vs 实际、
    清单一致性、版本一致性、过时结论
+6. **MCP 层反向约束**（0.9.0 加）：`cx_play` / `cx_http` / `cx_materials` 的 description
+   必须写「什么时候别用」—— **A 档宿主只看得到这个，看不到 SKILL.md**
+7. **Skill 层反例**（0.9.0 加）：`SKILL.md` 的 **frontmatter** 必须含「不用于」
+   （router 只看 frontmatter，正文里的反例对它无效）
+8. **接口层完备**（0.9.0 加）：`manifest.capabilities[]` 每条必须有 `inputs` 与 `returns`
 
 **这些已经逐条证伪过**（`D:\deep seek工作区3\.cxstudy-tmp\prove-gates.mjs`）：
 往 manifest 写 `coursez`、往 SKILL.md 写 `cxa fakecommand`、版本号漂移，
@@ -162,7 +167,7 @@ cxa heal --with-tests --apply --yes   连文档数字一起修
 ## 提交前
 
 ```bash
-node scripts/selftest.mjs   # 13 项全绿（含交付层一致性门）
+node scripts/selftest.mjs   # 16 项全绿（含交付层一致性门）
 ```
 
 **改了命令/工具/版本号，`manifest.json` 必须同步**，否则第 8 阶段会红。

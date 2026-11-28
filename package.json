@@ -1,6 +1,6 @@
 {
   "name": "cxstudy-toolkit",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "description": "超星学习通小助手：刷课过任务点、整理课程资料、生成本学期日历提醒、按考试出备考档案。不伪造任何学习记录。",
   "type": "module",
   "bin": {

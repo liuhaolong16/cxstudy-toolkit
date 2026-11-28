@@ -1,8 +1,8 @@
 {
   "$comment": "本文件是「机器可读层」：任何 AI 客户端可以不读 Markdown，直接解析这里拿到能力清单。改命令时**必须同步这里**，否则 scripts/selftest.mjs 的一致性门会红。",
   "schemaVersion": "1",
-  "contractVersion": "1.4.0",
-  "pkgVersion": "0.8.0",
+  "contractVersion": "1.5.0",
+  "pkgVersion": "0.9.0",
   "entrypoints": {
     "cli": "cxa",
     "cliAlias": "cxstudy",
@@ -27,7 +27,20 @@
       "kind": "setup",
       "since": "0.1.0",
       "stability": "stable",
-      "summary": "会话自检 / 登录 / 查看 cookie 状态。任何异常都先跑这个。"
+      "summary": "会话自检 / 登录 / 查看 cookie 状态。任何异常都先跑这个。",
+      "inputs": {
+        "required": [],
+        "optional": [
+          "login",
+          "status",
+          "import <文件>"
+        ],
+        "onMissing": "无子命令时打印用法"
+      },
+      "returns": {
+        "ok": "{ok, loggedIn, cookieCount, probe}",
+        "fail": "退出码非 0"
+      }
     },
     {
       "id": "courses",
@@ -36,7 +49,18 @@
       "kind": "read",
       "since": "0.1.0",
       "stability": "stable",
-      "summary": "课程列表（含 courseId / clazzId / cpi，后续命令都要用）。"
+      "summary": "课程列表（含 courseId / clazzId / cpi，后续命令都要用）。",
+      "inputs": {
+        "required": [],
+        "optional": [
+          "--json"
+        ],
+        "onMissing": "无必填参数"
+      },
+      "returns": {
+        "ok": "{ok, courses:[{courseId,classId,personId,name,teacher}], total}",
+        "fail": "退出码非 0，stderr 以 ✖ 开头"
+      }
     },
     {
       "id": "chapters",
@@ -45,7 +69,22 @@
       "kind": "read",
       "since": "0.1.0",
       "stability": "stable",
-      "summary": "章节与任务点进度。需要浏览器。"
+      "summary": "章节与任务点进度。需要浏览器。",
+      "inputs": {
+        "required": [
+          "--cid",
+          "--clz"
+        ],
+        "optional": [
+          "--cpi",
+          "--json"
+        ],
+        "onMissing": "报错退出，不猜课程"
+      },
+      "returns": {
+        "ok": "{ok, chapters:[{knowledgeId,name,jobs:[{jobid,type,status}]}], progress:{done,total}}",
+        "caveat": "需要浏览器，约 5-10 秒"
+      }
     },
     {
       "id": "exams",
@@ -54,7 +93,19 @@
       "kind": "read",
       "since": "0.1.0",
       "stability": "stable",
-      "summary": "考试安排（默认只列未结束的，--all 看全部）。"
+      "summary": "考试安排（默认只列未结束的，--all 看全部）。",
+      "inputs": {
+        "required": [],
+        "optional": [
+          "--all",
+          "--json"
+        ],
+        "onMissing": "无必填参数"
+      },
+      "returns": {
+        "ok": "{ok, exams:[{courseName,name,startTime,endTime,status}]}",
+        "caveat": "默认只返回未结束的考试"
+      }
     },
     {
       "id": "notices",
@@ -63,7 +114,20 @@
       "kind": "read",
       "since": "0.1.0",
       "stability": "stable",
-      "summary": "通知中心 + 未交作业（--work）。"
+      "summary": "通知中心 + 未交作业（--work）。",
+      "inputs": {
+        "required": [],
+        "optional": [
+          "--work",
+          "--all",
+          "--json"
+        ],
+        "onMissing": "无必填参数"
+      },
+      "returns": {
+        "ok": "{ok, notices:[{title,courseName,type,url}]}",
+        "caveat": "--work 只返回作业/考试入口"
+      }
     },
     {
       "id": "materials",
@@ -72,7 +136,22 @@
       "kind": "read",
       "since": "0.1.0",
       "stability": "stable",
-      "summary": "资料区：列 / 递归搜（匹配完整路径）/ 下载到本地。"
+      "summary": "资料区：列 / 递归搜（匹配完整路径）/ 下载到本地。",
+      "inputs": {
+        "required": [
+          "--course 或 --cid"
+        ],
+        "optional": [
+          "--find <关键词>",
+          "--download <目录>",
+          "--json"
+        ],
+        "onMissing": "报错退出"
+      },
+      "returns": {
+        "ok": "{ok, files:[{name,path,size}], dirs[]}",
+        "caveat": "--download 会写磁盘"
+      }
     },
     {
       "id": "schedule",
@@ -81,7 +160,23 @@
       "kind": "read",
       "since": "0.1.0",
       "stability": "stable",
-      "summary": "课表：当前周 / 指定周 / 今天 / 明天 + 空闲时段 / 导出 .ics。"
+      "summary": "课表：当前周 / 指定周 / 今天 / 明天 + 空闲时段 / 导出 .ics。",
+      "inputs": {
+        "required": [],
+        "optional": [
+          "--week n",
+          "--today",
+          "--tomorrow",
+          "--ics <目录>",
+          "--alarm <分钟>",
+          "--json"
+        ],
+        "onMissing": "无必填参数"
+      },
+      "returns": {
+        "ok": "{ok, week, lessons:[{name,teacher,room,weekday,sections,startTime,endTime}]}",
+        "caveat": "--ics 会写 .ics 文件"
+      }
     },
     {
       "id": "plan",
@@ -90,7 +185,19 @@
       "kind": "read",
       "since": "0.2.0",
       "stability": "stable",
-      "summary": "未来 N 天：课 + 考试 + 空闲时段合并视图。"
+      "summary": "未来 N 天：课 + 考试 + 空闲时段合并视图。",
+      "inputs": {
+        "required": [],
+        "optional": [
+          "--days 14",
+          "--json"
+        ],
+        "onMissing": "无必填参数"
+      },
+      "returns": {
+        "ok": "**没有 --json**（输出是文本日程表）",
+        "caveat": "需要登录态"
+      }
     },
     {
       "id": "brief",
@@ -99,7 +206,17 @@
       "kind": "read",
       "since": "0.2.0",
       "stability": "stable",
-      "summary": "一段可以直接粘给 AI 的 Markdown 简报。"
+      "summary": "一段可以直接粘给 AI 的 Markdown 简报。",
+      "inputs": {
+        "required": [],
+        "optional": [
+          "--days 7"
+        ],
+        "onMissing": "无必填参数"
+      },
+      "returns": {
+        "ok": "Markdown 文本（**没有 --json**，它就是给 AI 直接粘的简报）"
+      }
     },
     {
       "id": "exam",
@@ -108,7 +225,22 @@
       "kind": "read",
       "since": "0.2.0",
       "stability": "stable",
-      "summary": "备考档案：课件按章归组 + 分级证据（作业/教案/大纲/习题/视频时长）+ 考试倒计时 + 老师通知 + 给 AI 的提示词。"
+      "summary": "备考档案：课件按章归组 + 分级证据（作业/教案/大纲/习题/视频时长）+ 考试倒计时 + 老师通知 + 给 AI 的提示词。",
+      "inputs": {
+        "required": [
+          "--course <名>"
+        ],
+        "optional": [
+          "--out <目录>",
+          "--no-video",
+          "--json"
+        ],
+        "onMissing": "报错退出"
+      },
+      "returns": {
+        "ok": "{ok, course, evidence:{homework[],outline[],exercises[],videoMinutes}, degraded[]}",
+        "caveat": "--out 会写 Markdown 文件"
+      }
     },
     {
       "id": "info",
@@ -117,7 +249,20 @@
       "kind": "read",
       "since": "0.3.0",
       "stability": "stable",
-      "summary": "外部资讯：四六级 / 计算机等级 / 考研 / 考公的官方入口与一般规律；sources 子命令列外部源模板并打印加源提示词。"
+      "summary": "外部资讯：四六级 / 计算机等级 / 考研 / 考公的官方入口与一般规律；sources 子命令列外部源模板并打印加源提示词。",
+      "inputs": {
+        "required": [
+          "<主题>"
+        ],
+        "optional": [
+          "sources"
+        ],
+        "onMissing": "报错并列出可用主题（cet/ncre/kaoyan/gongkao/school）"
+      },
+      "returns": {
+        "ok": "Markdown / 纯文本（**没有 --json**；只给官方链接与一般规律）",
+        "fail": "未知主题时退出码非 0，并列出可用主题"
+      }
     },
     {
       "id": "pan",
@@ -126,7 +271,18 @@
       "kind": "read",
       "since": "0.3.0",
       "stability": "beta",
-      "summary": "云盘根目录列表（需 CDP 现取 enc，约 8 秒）。"
+      "summary": "云盘根目录列表（需 CDP 现取 enc，约 8 秒）。",
+      "inputs": {
+        "required": [],
+        "optional": [
+          "--json"
+        ],
+        "onMissing": "无必填参数"
+      },
+      "returns": {
+        "ok": "{ok, total, items:[{name,size,isDir}]}",
+        "caveat": "需要浏览器，约 8 秒（服务端签名的 enc 必须抓活的）"
+      }
     },
     {
       "id": "play",
@@ -136,7 +292,26 @@
       "since": "0.1.0",
       "stability": "stable",
       "summary": "后台静默连播课程视频。会改变平台上的观看进度，跑之前应让用户确认。",
-      "caveat": "真正的记账需要四条件链（studentcourse 跳转 + enc 签名 + 真实浏览器 + 关后台节流），本命令已实现。"
+      "caveat": "真正的记账需要四条件链（studentcourse 跳转 + enc 签名 + 真实浏览器 + 关后台节流），本命令已实现。",
+      "inputs": {
+        "required": [
+          "--cid",
+          "--clz"
+        ],
+        "optional": [
+          "--kid",
+          "--limit",
+          "--rate",
+          "--dry-run",
+          "--headed",
+          "--cpi"
+        ],
+        "onMissing": "报错退出"
+      },
+      "returns": {
+        "ok": "{ok, played[], skipped[], elapsedSec}",
+        "caveat": "**耗时≈视频总时长**；写类，执行前必须让用户确认"
+      }
     },
     {
       "id": "check",
@@ -145,7 +320,21 @@
       "kind": "read",
       "since": "0.1.0",
       "stability": "stable",
-      "summary": "5 道判据门（env / auth / target / reachable / progress），红项带 evidence。查的是**运行时环境**。"
+      "summary": "5 道判据门（env / auth / target / reachable / progress），红项带 evidence。查的是**运行时环境**。",
+      "inputs": {
+        "required": [],
+        "optional": [
+          "--cid",
+          "--clz",
+          "--json"
+        ],
+        "onMissing": "无必填参数（会尽量自动推断目标）"
+      },
+      "returns": {
+        "ok": "{ok, gates:[{id,status,message,evidence}], summary:{total,pass,fail,skip}}",
+        "fail": "退出码 3（有红门）或 0（全绿）；--json 时只输出 JSON，不混文本",
+        "caveat": "status 三态：pass/fail/skip，skip 不算通过"
+      }
     },
     {
       "id": "audit",
@@ -154,7 +343,20 @@
       "kind": "read",
       "since": "0.5.0",
       "stability": "stable",
-      "summary": "交付面审计：文档里的数字 / 清单 / 过时结论 vs 实现。查的是**仓库自洽性**，与 check 互补。`--fix` 只修能唯一确定的（版本号同步），其余显形要求人改。"
+      "summary": "交付面审计：文档里的数字 / 清单 / 过时结论 vs 实现。查的是**仓库自洽性**，与 check 互补。`--fix` 只修能唯一确定的（版本号同步），其余显形要求人改。",
+      "inputs": {
+        "required": [],
+        "optional": [
+          "--json",
+          "--fix",
+          "--with-tests"
+        ],
+        "onMissing": "无必填参数"
+      },
+      "returns": {
+        "ok": "{ok, groups:[{name,results[{label,verdict,detail}]}], pass, fail, skip}",
+        "caveat": "verdict 三态：pass/fail/skip，skip 不算通过"
+      }
     },
     {
       "id": "notify",
@@ -163,7 +365,19 @@
       "kind": "write",
       "since": "0.2.0",
       "stability": "stable",
-      "summary": "推送到手机：企业微信 / 飞书 / 钉钉 / Server酱 / PushPlus。会向外部服务发请求。"
+      "summary": "推送到手机：企业微信 / 飞书 / 钉钉 / Server酱 / PushPlus。会向外部服务发请求。",
+      "inputs": {
+        "required": [
+          "<channels|set|status|test|brief>"
+        ],
+        "optional": [],
+        "onMissing": "报错并列出可用子命令"
+      },
+      "returns": {
+        "ok": "{ok, channel, delivered, businessCode}",
+        "fail": "HTTP 200 但 errcode≠0 也算失败",
+        "caveat": "**外发动作**：会给用户手机推送，执行前确认"
+      }
     },
     {
       "id": "mcp",
@@ -172,7 +386,16 @@
       "kind": "setup",
       "since": "0.1.0",
       "stability": "stable",
-      "summary": "启动 MCP server（stdio，newline-delimited JSON-RPC）。"
+      "summary": "启动 MCP server（stdio，newline-delimited JSON-RPC）。",
+      "inputs": {
+        "required": [],
+        "optional": [],
+        "onMissing": "无参数（走 stdin/stdout）"
+      },
+      "returns": {
+        "ok": "stdio JSON-RPC 流（不是一次性 JSON）",
+        "caveat": "给宿主调用，人不要直接跑"
+      }
     },
     {
       "id": "http",
@@ -181,7 +404,19 @@
       "kind": "write",
       "since": "0.1.0",
       "stability": "beta",
-      "summary": "带登录态发任意学习通请求（万能兜底）。没有对应 CLI 命令，只能通过 MCP 用。"
+      "summary": "带登录态发任意学习通请求（万能兜底）。没有对应 CLI 命令，只能通过 MCP 用。",
+      "inputs": {
+        "required": [
+          "url"
+        ],
+        "optional": [],
+        "onMissing": "报错退出"
+      },
+      "returns": {
+        "ok": "{ok, status, body}",
+        "fail": "网络/鉴权失败时 ok:false",
+        "caveat": "**只读兜底**，不做写操作"
+      }
     },
     {
       "id": "heal",
@@ -190,7 +425,43 @@
       "kind": "write",
       "since": "0.7.0",
       "stability": "beta",
-      "summary": "自愈：按配方自动修改仓库自己的文件（版本号同步 / 文档数字同步 / manifest 补骨架）。默认预演不碰文件；--apply --yes 才真改，改完立刻验证，不过自动回滚。kind=write 因为会改源码。"
+      "summary": "自愈：按配方自动修改仓库自己的文件（版本号同步 / 文档数字同步 / manifest 补骨架）。默认预演不碰文件；--apply --yes 才真改，改完立刻验证，不过自动回滚。kind=write 因为会改源码。",
+      "inputs": {
+        "required": [],
+        "optional": [
+          "--apply --yes",
+          "--commit",
+          "--with-tests",
+          "--dry-run（默认）"
+        ],
+        "onMissing": "无必填参数"
+      },
+      "returns": {
+        "ok": "**没有 --json**（输出是给人读的自愈报告）",
+        "caveat": "改源码：默认 dry-run；--apply 还要 --yes；验证不过自动回滚"
+      }
+    },
+    {
+      "id": "feedback",
+      "cli": "cxa feedback",
+      "mcp": null,
+      "kind": "write",
+      "since": "0.9.0",
+      "stability": "beta",
+      "summary": "标记一次使用的好坏（ok/bad + 理由）。写进 usage.jsonl 的 feedback 字段，供 Skill 健康统计；需主动调，所以覆盖率取决于自觉。",
+      "inputs": {
+        "required": [
+          "ok|bad"
+        ],
+        "optional": [
+          "理由"
+        ],
+        "onMissing": "打印用法并退出码 1"
+      },
+      "returns": {
+        "ok": "文本确认（成功/失败都不返回 JSON）",
+        "caveat": "只写本地 usage.jsonl，不联网、不上报"
+      }
     }
   ],
   "kindMeaning": {
