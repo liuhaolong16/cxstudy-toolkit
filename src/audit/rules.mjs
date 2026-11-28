@@ -36,6 +36,26 @@
  *
  * 每条规则：怎么在文本里找到这个数字 + 它应该等于 `actual` 的哪个字段。
  */
+/**
+ * 对外发布物清单 —— `cxa audit` 与 `scripts/selftest.mjs` 的唯一真源。
+ *
+ * 2026-11-28 修复：此前存在三套不一致的白名单 ——
+ *   src/cli.mjs 的审计入口 9 份、scripts/selftest.mjs 的交付面审计 5 份、
+ *   selftest 的「文档命令存在性」检查 4 份。导流文件再次漂移时 selftest 会假绿。
+ * 规则：凡新增对外发布的 .md/.txt，必须登记到本数组，两处入口自动同步。
+ */
+export const AUDIT_DOC_FILES = [
+  'AGENT-CONTRACT.md',
+  'dsh/skills/cxstudy/SKILL.md',
+  'llms.txt',
+  'README.md',
+  'DISCLAIMER.md',
+  'CLAUDE.md',
+  '.cursorrules',
+  'GEMINI.md',
+  'docs/AI-CLIENT-INTEGRATION.md',
+];
+
 export const NUMBER_RULES = [
   {
     id: 'cli-commands',
@@ -275,6 +295,16 @@ export const STALE_CLAIMS = [
     pattern:
       /(?:CLI\s*播放|用\s*CLI\s*播放).{0,12}(?:不(?:会)?认账|不记账)|必须(?:装|用|使用|依靠|借助).{0,8}浏览器扩展.{0,8}记账/,
     why: '2026-11-28 已验证：四条件链成立时 CLI 能记账，扩展只是等价路径',
+    allowFiles: ['CHANGELOG.md'],
+  },
+  {
+    id: 'cli-no-credit-soft',
+    // 2026-11-28 补：旧正则只匹配「不认账 / 不记账」硬说法，漏掉
+    // 「CLI 播放通常不会被记账；要记账请用 extension/」这类软说法，
+    // 导致 src/gates/index.mjs 的过时文案长存且 audit 全绿。
+    pattern:
+      /CLI\s*播放[^。；\n]{0,24}(?:不会|不|没能)\s*(?:被)?\s*记账|要记账请用\s*extension/i,
+    why: 'CLI 播放记账取决于四条件链；extension 是等价路径，不是唯一路径',
     allowFiles: ['CHANGELOG.md'],
   },
   {

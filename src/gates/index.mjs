@@ -121,7 +121,7 @@ export async function gateProgress({ before, after }) {
   if (!before || !after) {
     return fail2(
       'progress',
-      '未提供播放前后的进度读数。注意：CLI 播放通常不会被记账；要记账请用 extension/ 浏览器扩展（见 docs/EXTENSION.md）',
+      '未提供播放前后的进度读数。注意：CLI 播放能否记账取决于四条件链（studentcourse 跳转 + enc 签名 + 真实浏览器 + 关后台节流），四条件齐了 CLI 也会记账；extension/ 浏览器扩展是另一条等价路径，不是唯一路径（见 docs/PROGRESS-FINDINGS.md）',
       evidence
     );
   }

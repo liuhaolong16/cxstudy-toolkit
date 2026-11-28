@@ -23,8 +23,17 @@ import { fetchNoticesPage, fetchAllNotices, pickWorkItems } from '../src/api/not
 import { ChromeSession } from '../src/browser/cdp.mjs';
 import { playKnowledge, inspectKnowledge } from '../src/browser/player.mjs';
 import { runGates, summarize } from '../src/gates/index.mjs';
+import fs from 'node:fs';
 
-const SERVER_INFO = { name: 'chaoxing-assistant', version: '0.2.0' };
+// 版本从 package.json 动态读取，避免 serverInfo 与包版本漂移（曾硬编码 0.2.0）。
+const PKG_VERSION = (() => {
+  try {
+    return JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
+  } catch {
+    return '0.0.0-unknown';
+  }
+})();
+const SERVER_INFO = { name: 'chaoxing-assistant', version: PKG_VERSION };
 
 /* ----------------------------- 工具实现 ----------------------------- */
 

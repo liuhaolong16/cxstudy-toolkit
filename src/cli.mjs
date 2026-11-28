@@ -30,7 +30,7 @@ import { aggregateVideoMinutes } from './study/exam-focus.mjs';
 import { ChromeSession } from './browser/cdp.mjs';
 import { playKnowledge, inspectKnowledge } from './browser/player.mjs';
 import { runGates, summarize } from './gates/index.mjs';
-import { auditAll, renderAuditReport } from './audit/rules.mjs';
+import { auditAll, renderAuditReport, AUDIT_DOC_FILES } from './audit/rules.mjs';
 import {
   makeRecord,
   appendRecord,
@@ -76,7 +76,7 @@ const USAGE = `
   cxa auth import <文件>               从浏览器导出的 cookie 文件导入
 
   cxa 是主命令；cxstudy 是等价的旧别名，两者可互换。
-  cxa courses                             列出课程
+  cxa courses [--json]                    列出课程（--json 出机器可读）
   cxa chapters --cid <id> --clz <id>       列出章节与知识点（含进度）
   cxa exams [--all] [--json]               未结束的考试安排（--all 看全部历史）
   cxa schedule [--week n] [--ics <目录>]   课表；--ics 导出全学期 .ics 给日历导入（带提前提醒）
@@ -159,9 +159,17 @@ async function cmdAuth() {
 async function cmdCourses() {
   const { authenticated, courses, raw } = await listCourses();
   if (!authenticated) {
-    log('✖ 会话失效。先跑 `cxstudy auth login`');
-    if (raw) log(JSON.stringify(raw).slice(0, 300));
+    if (has('json')) {
+      log(JSON.stringify({ ok: false, authenticated: false, error: '会话失效，请先 auth login' }));
+    } else {
+      log('✖ 会话失效。先跑 `cxstudy auth login`');
+      if (raw) log(JSON.stringify(raw).slice(0, 300));
+    }
     return 1;
+  }
+  if (has('json')) {
+    log(JSON.stringify({ ok: true, authenticated: true, count: courses.length, courses }, null, 2));
+    return 0;
   }
   log(`共 ${courses.length} 门课\n`);
   const pad = (s, n) => String(s ?? '').padEnd(n).slice(0, n);
@@ -1353,14 +1361,9 @@ async function cmdAudit() {
     return fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : null;
   };
 
-  /* ---- 1. 收集"对外说的话"：五份文档 + 源码里的 USAGE ---- */
-  const DOC_FILES = [
-    'AGENT-CONTRACT.md',
-    'dsh/skills/cxstudy/SKILL.md',
-    'llms.txt',
-    'README.md',
-    'DISCLAIMER.md',
-  ];
+  /* ---- 1. 收集"对外说的话"：全量交付文档 + 源码里的 USAGE ---- */
+  // 2026-11-28：三套白名单曾不一致（4/5/9 份），现统一到 src/audit/rules.mjs 的 AUDIT_DOC_FILES。
+  const DOC_FILES = AUDIT_DOC_FILES;
   const docs = [];
   for (const f of DOC_FILES) {
     const text = readIf(f);
@@ -1371,6 +1374,9 @@ async function cmdAudit() {
   const cliSrc = readIf('src/cli.mjs') || '';
   const usageMatch = cliSrc.match(/const USAGE = `([\s\S]*?)`;/);
   if (usageMatch) docs.push({ file: 'src/cli.mjs (USAGE)', text: usageMatch[1] });
+  // gates 的失败提示也是"对用户说的话"，历史上残留过「CLI 播放不记账」过时结论。
+  const gatesSrc = readIf('src/gates/index.mjs') || '';
+  if (gatesSrc) docs.push({ file: 'src/gates/index.mjs', text: gatesSrc });
 
   /* ---- 2. 抽实现侧的事实 ---- */
   const cliCases = [...new Set([...cliSrc.matchAll(/case\s+'([a-z][a-z0-9-]*)'\s*:/g)].map((m) => m[1]))].sort();
@@ -1518,12 +1524,14 @@ async function cmdHeal() {
   const cliSrc = readIf('src/cli.mjs') || '';
   const cliCases = [...new Set([...cliSrc.matchAll(/case\s+'([a-z][a-z0-9-]*)'\s*:/g)].map((m) => m[1]))].sort();
 
-  const DOC_FILES = ['AGENT-CONTRACT.md', 'dsh/skills/cxstudy/SKILL.md', 'llms.txt', 'README.md', 'DISCLAIMER.md'];
+  const DOC_FILES = AUDIT_DOC_FILES;
   const docs = [];
   for (const f of DOC_FILES) {
     const t = readIf(f);
     if (t) docs.push({ file: f, text: t });
   }
+  const gatesSrc2 = readIf('src/gates/index.mjs') || '';
+  if (gatesSrc2) docs.push({ file: 'src/gates/index.mjs', text: gatesSrc2 });
 
   let manifest = null;
   try {

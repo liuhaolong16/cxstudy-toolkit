@@ -57,8 +57,8 @@ WorkBuddy 的连接器面板在对话输入框的 `+` 里。配 stdio MCP：
 }
 ```
 
-配好后能用 9 个工具：`cx_status` / `cx_courses` / `cx_exams` / `cx_materials` /
-`cx_schedule` / `cx_chapters` / `cx_play` / `cx_http` / `cx_gates`。
+配好后能用 10 个工具：`cx_status` / `cx_courses` / `cx_exams` / `cx_materials` /
+`cx_schedule` / `cx_chapters` / `cx_notices` / `cx_play` / `cx_http` / `cx_gates`。
 
 **③ 电脑端开「允许移动端连接此设备」**
 

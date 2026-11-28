@@ -6,8 +6,8 @@
 **版本三元组**（AI 需要比对时用它，不用读全文）：
 
 ```
-pkgVersion      0.4.0     ← 项目版本
-contractVersion 1.0.0     ← 本契约版本。它变了 = 约定变了，要重读
+pkgVersion      0.8.0     ← 项目版本（与 package.json / manifest.json 同步）
+contractVersion 1.4.0     ← 本契约版本。它变了 = 约定变了，要重读
 schemaVersion   1         ← manifest.json 的结构版本
 ```
 

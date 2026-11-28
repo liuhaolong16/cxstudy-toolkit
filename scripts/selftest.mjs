@@ -30,6 +30,8 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { AUDIT_DOC_FILES } from '../src/audit/rules.mjs';
+
 const ROOT = process.cwd();
 const results = [];
 
@@ -218,7 +220,7 @@ const manifestCli = [
 
 // (8c) 文档里提到的 `cxa <子命令>` 必须都真实存在（防止文档教用户跑不存在的命令）
 {
-  const docsToScan = ['AGENT-CONTRACT.md', 'dsh/skills/cxstudy/SKILL.md', 'llms.txt', 'README.md'];
+  const docsToScan = AUDIT_DOC_FILES;
   const mentioned = new Set();
   for (const f of docsToScan) {
     const p = path.join(ROOT, f);
@@ -252,7 +254,7 @@ const manifestCli = [
 // 与 `cxa audit` 用同一套纯函数（src/audit/rules.mjs），区别是这里能填真实数字
 // （单测条数与自检项数在本进程里本来就有），所以不会 skip。
 {
-  const DOC_FILES = ['AGENT-CONTRACT.md', 'dsh/skills/cxstudy/SKILL.md', 'llms.txt', 'README.md', 'DISCLAIMER.md'];
+  const DOC_FILES = AUDIT_DOC_FILES;
   const docs = [];
   for (const f of DOC_FILES) {
     const p = path.join(ROOT, f);
