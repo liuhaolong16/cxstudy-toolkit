@@ -2,6 +2,7 @@
  * 章节与知识点（必须走浏览器：页面内容由 JS 渲染，纯 HTTP 拿到的是空壳）。
  */
 import { ENDPOINTS } from './client.mjs';
+import { parseCards } from './job.mjs';
 
 /** 解析「已完成任务点: 26/84」中的数字 */
 export function parseProgress(text) {
@@ -52,4 +53,34 @@ export function cardsUrl({ courseId, classId, personId, knowledgeId }) {
     `${ENDPOINTS.cards}?clazzid=${classId}&courseid=${courseId}` +
     `&knowledgeid=${knowledgeId}&num=0&ut=s&cpi=${personId}&mooc2=0`
   );
+}
+
+/**
+ * 从当前已打开的 cards 页面读出任务点清单（含类型与 jtoken）。
+ *
+ * ## 为什么要这个
+ *
+ * `listChapters` 只给章节名，**不给任务点类型** —— 要分派「视频/文档/阅读/测验」，
+ * 必须进 cards 页面读 `mArg`。而 `parseCards` 已经能把 `mArg` 解成结构化 jobs。
+ *
+ * ## 一次 goto，两条信息
+ *
+ * `play` 的循环里本来就要 `goto(cardsUrl)` 才能播视频；
+ * 这里顺带把 HTML 取回来喂给 `parseCards`，**不额外增加一次页面访问**。
+ *
+ * @returns {Promise<{jobs:Array, meta:object|null, notOpen:boolean, reason?:string}>}
+ */
+export async function readJobs(session, { includePassed = false } = {}) {
+  let html = '';
+  try {
+    html = await session.evaluate('document.documentElement.outerHTML');
+  } catch (e) {
+    return { jobs: [], meta: null, notOpen: false, reason: '取页面 HTML 失败: ' + e.message };
+  }
+  // 正常返回是字符串；防御一下万一 evaluate 返回了对象
+  if (typeof html !== 'string') {
+    return { jobs: [], meta: null, notOpen: false, reason: 'evaluate 未返回字符串' };
+  }
+  const parsed = parseCards(html, { includePassed });
+  return { jobs: parsed.jobs || [], meta: parsed.meta || null, notOpen: !!parsed.notOpen, reason: parsed.reason };
 }

@@ -291,7 +291,7 @@
       "kind": "write",
       "since": "0.1.0",
       "stability": "stable",
-      "summary": "后台静默连播课程视频。会改变平台上的观看进度，跑之前应让用户确认。",
+      "summary": "任务点全清：文档/阅读用完成接口（一个请求即记账，实测有效），视频真播（倍率默认 2x）。测验不自动答，列出待 AI 处理。**以平台计数变化为准，不以「调用成功」为准**",
       "caveat": "真正的记账需要四条件链（studentcourse 跳转 + enc 签名 + 真实浏览器 + 关后台节流），本命令已实现。",
       "inputs": {
         "required": [
@@ -301,7 +301,9 @@
         "optional": [
           "--kid",
           "--limit",
-          "--rate",
+          "--rate（默认 2）",
+          "--skip-video",
+          "--no-quiz",
           "--dry-run",
           "--headed",
           "--cpi"
@@ -309,8 +311,8 @@
         "onMissing": "报错退出"
       },
       "returns": {
-        "ok": "{ok, played[], skipped[], elapsedSec}",
-        "caveat": "**耗时≈视频总时长**；写类，执行前必须让用户确认"
+        "ok": "文本报告：提交成功数 / 跳过 / 失败 + **回读的平台计数 before→after**",
+        "caveat": "**平台是幂等的**：已完成的再调仍返回 200 但计数不涨；且 isPassed 字段在部分课程里不存在，所以「提交成功」不等于「计数涨了」。以回读的计数为准"
       }
     },
     {

@@ -13,7 +13,7 @@ import path from 'node:path';
 import { loadCookies, saveCookies, readCookieFile, homeDir, maskCookieNames } from './auth/cookies.mjs';
 import { loginInteractive } from './auth/login.mjs';
 import { listCourses, matchCourse } from './api/courses.mjs';
-import { listChapters } from './api/chapters.mjs';
+import { listChapters, cardsUrl, readJobs } from './api/chapters.mjs';
 import { request, ENDPOINTS } from './api/client.mjs';
 import { listExams, pendingExams } from './api/exams.mjs';
 import { listMaterials, findMaterials, downloadMaterial } from './api/materials.mjs';
@@ -25,7 +25,7 @@ import { buildDossier, filterWorksByCourse, filterExamsByCourse } from './study/
 import { ALL_EXAMS, schoolEntries, nextOccurrence } from './info/exams.mjs';
 import { listSources, validateSource, buildAddSourcePrompt, SOURCE_TEMPLATE, SOURCE_KINDS } from './info/sources.mjs';
 import { listPanRoot } from './api/pan.mjs';
-import { fetchJobs } from './api/job.mjs';
+import { fetchJobs, finishDocumentJob, finishReadJob } from './api/job.mjs';
 import { aggregateVideoMinutes } from './study/exam-focus.mjs';
 import { ChromeSession } from './browser/cdp.mjs';
 import { playKnowledge, inspectKnowledge } from './browser/player.mjs';
@@ -1247,10 +1247,12 @@ async function cmdPlay() {
   const classId = num('clz');
   if (!courseId || !classId) fail('需要 --cid 与 --clz');
 
-  const rate = num('rate', 1.0);
+  const rate = num('rate', 2.0);
   const limit = num('limit', 0);
   const onlyKid = num('kid', 0);
   const dryRun = has('dry-run');
+  const noQuiz = has('no-quiz');
+  const skipVideo = has('skip-video');
 
   const { authenticated, courses } = await listCourses();
   if (!authenticated) fail('会话失效，先跑 `cxstudy auth login`');
@@ -1259,7 +1261,7 @@ async function cmdPlay() {
   if (!personId) fail('无法确定 personId，请显式传 --cpi');
 
   log(`课程: ${course?.name ?? courseId}`);
-  if (rate !== 1.0) log(`⚠ 播放倍率 ${rate}x —— 平台可能记录倍率，请自行判断是否合适`);
+  log(`倍率 ${rate}x —— 平台会记录播放倍率，是否可接受由你判断（--rate 1 可改回）`);
 
   const session = await ChromeSession.launch({ headless: !has('headed'), cookies: loadCookies() });
   try {
@@ -1275,77 +1277,176 @@ async function cmdPlay() {
     const skipped = { ...(state.skipped || {}) };
 
     if (dryRun) {
-      log(`\n[dry-run] 将处理 ${targets.length} 个知识点（不实际播放）：`);
-      for (const c of targets) {
-        const already = doneSet.has(String(c.knowledgeId)) ? '（已播过，将跳过）' : '';
-        log(`  [kid ${c.knowledgeId}] ${c.title} ${already}`);
+      // dry-run 要开浏览器扫一遍才能知道任务点类型 —— 这是必要成本
+      log(`\n[dry-run] 扫描 ${targets.length} 个知识点的任务点类型（会开浏览器，约 ${Math.ceil((targets.length * 6) / 60)} 分钟）…`);
+      const tally = { video: [], document: [], read: [], quiz: [], other: [] };
+      for (let i = 0; i < targets.length; i++) {
+        const item = targets[i];
+        await session.goto(cardsUrl({ courseId, classId, personId, knowledgeId: Number(item.knowledgeId) }), 5000);
+        const r = await readJobs(session, { includePassed: false });
+        if (!r.jobs.length) continue;
+        for (const j of r.jobs) {
+          const bucket = tally[j.type] ? j.type : 'other';
+          tally[bucket].push(`${item.title}${r.jobs.length > 1 ? '#' + j.jobid : ''}`);
+        }
+        if ((i + 1) % 10 === 0) log(`  已扫 ${i + 1}/${targets.length}`);
       }
+      log('');
+      for (const [kind, items] of Object.entries(tally)) {
+        if (items.length) log(`  ${kind.padEnd(9)} ${String(items.length).padStart(3)} 个   ${items.slice(0, 3).join(' / ')}${items.length > 3 ? ' …' : ''}`);
+      }
+      log('\n[dry-run] 未做任何改动。去掉 --dry-run 才会真跑。');
       return 0;
     }
 
-    let played = 0;
+    let handled = 0;
     let skippedNow = 0;
     let failed = 0;
+    const pendingQuiz = [];
 
     for (let i = 0; i < targets.length; i++) {
       const item = targets[i];
       if (doneSet.has(String(item.knowledgeId))) {
-        log(`[${i + 1}/${targets.length}] 已播过，跳过  ${item.title}`);
+        log(`[${i + 1}/${targets.length}] 已完成，跳过  ${item.title}`);
         continue;
       }
-      log(`[${i + 1}/${targets.length}] 处理  ${item.title}`);
+      log(`[${i + 1}/${targets.length}] ${item.title}`);
 
-      let lastMarker = -1;
-      const result = await playKnowledge(session, {
-        courseId,
-        classId,
-        personId,
-        knowledgeId: Number(item.knowledgeId),
-        rate,
-        testSeconds: num('test-seconds', 0),
-        onProgress: (p) => {
-          if (p.dismissed) log('  （已关闭弹窗）');
-          // 每 30 秒打一次，避免刷屏又能看出在推进
-          const marker = Math.floor((p.currentTime || 0) / 30);
-          if (marker !== lastMarker) {
-            lastMarker = marker;
-            log(`  t=${p.currentTime}/${p.duration ?? '?'}`);
-          }
-        },
-      });
+      // 一次进页面，同时拿到「任务点清单」和「视频信息」
+      await session.goto(cardsUrl({ courseId, classId, personId, knowledgeId: Number(item.knowledgeId) }), 6000);
+      const scanned = await readJobs(session, { includePassed: false });
 
-      if (result.status === 'played') {
-        played += 1;
+      if (scanned.notOpen) {
+        skippedNow += 1;
+        log(`  跳过（章节未开放）`);
+        continue;
+      }
+      if (!scanned.jobs.length) {
+        // 没有未完成任务点 = 这个知识点已经清了
         doneSet.add(String(item.knowledgeId));
         state.done = [...doneSet];
         saveState(courseId, state);
-        log(`  ✓ 播放完成  ${result.seconds ?? '?'}s`);
-      } else if (result.status === 'skipped') {
+        log(`  ✓ 无未完成任务点`);
+        continue;
+      }
+
+      let touchedThisKid = false;
+      for (const job of scanned.jobs) {
+        const kind = String(job.type || '').toLowerCase();
+
+        if (kind === 'document') {
+          const r = await finishDocumentJob({ courseId, clazzId: classId, job });
+          if (r.ok) { handled += 1; touchedThisKid = true; log(`  ✓ 文档任务点 ${job.jobid}`); }
+          else { failed += 1; log(`  ✖ 文档 ${job.jobid}：${r.reason}`); }
+          continue;
+        }
+
+        if (kind === 'read') {
+          const r = await finishReadJob({ courseId, clazzId: classId, knowledgeId: item.knowledgeId, job });
+          if (r.ok) { handled += 1; touchedThisKid = true; log(`  ✓ 阅读任务点 ${job.jobid}`); }
+          else { failed += 1; log(`  ✖ 阅读 ${job.jobid}：${r.reason}`); }
+          continue;
+        }
+
+        if (kind === 'video') {
+          if (skipVideo) { log(`  （--skip-video，跳过视频）`); continue; }
+          // 视频要真播，单独走 playKnowledge（它会自己再 goto 一次，多几秒但逻辑独立）
+          let lastMarker = -1;
+          const result = await playKnowledge(session, {
+            courseId,
+            classId,
+            personId,
+            knowledgeId: Number(item.knowledgeId),
+            rate,
+            testSeconds: num('test-seconds', 0),
+            onProgress: (p) => {
+              if (p.dismissed) log('  （已关闭弹窗）');
+              const marker = Math.floor((p.currentTime || 0) / 30);
+              if (marker !== lastMarker) {
+                lastMarker = marker;
+                log(`  t=${p.currentTime}/${p.duration ?? '?'}`);
+              }
+            },
+          });
+          if (result.status === 'played') { handled += 1; touchedThisKid = true; log(`  ✓ 视频播完 ${result.seconds ?? '?'}s`); }
+          else if (result.status === 'skipped') { skippedNow += 1; log(`  视频跳过（${result.kind}）`); }
+          else { failed += 1; log(`  ✖ 视频 ${result.status}${result.memo ? '：' + result.memo : ''}`); }
+          continue;
+        }
+
+        // 测验 / 作业：不自动答，交给调用本工具的 AI
+        if (kind === 'quiz' || kind === 'work') {
+          pendingQuiz.push({ knowledgeId: item.knowledgeId, title: item.title, jobid: job.jobid, type: kind });
+          log(`  ⏳ 测验/作业（待 AI 答）：--kid ${item.knowledgeId} --dump`);
+          continue;
+        }
+
         skippedNow += 1;
-        skipped[String(item.knowledgeId)] = result.kind || 'unknown';
+        skipped[String(item.knowledgeId)] = kind || 'unknown';
         state.skipped = skipped;
         saveState(courseId, state);
-        log(`  跳过（${result.kind}）—— 留给你处理`);
-      } else {
-        failed += 1;
-        log(`  ✖ ${result.status}${result.memo ? '：' + result.memo : ''}`);
+        log(`  跳过（${kind || 'unknown'}）`);
+      }
+
+      if (touchedThisKid) {
+        doneSet.add(String(item.knowledgeId));
+        state.done = [...doneSet];
+        saveState(courseId, state);
       }
     }
 
     log('\n================ 结果 ================');
-    log(`播放完成: ${played}`);
-    log(`本次跳过: ${skippedNow}`);
+    log(`提交成功: ${handled}`);
+    log(`跳过: ${skippedNow}`);
     log(`失败: ${failed}`);
+
+    // **关键**：不以「调用成功」为准，以「平台计数变化」为准。
+    // 平台的完成接口是幂等的 —— 已经做过的任务点再调仍返回 200，但计数不涨。
+    // 而且 `isPassed` 字段在部分课程里根本不存在（实测 236111617 就没有），
+    // 所以 `parseCards` 会把已完成的也当成未完成。这里用前后读数兜住。
+    try {
+      log('\n回读进度核对…');
+      const after = await listChapters(session, { courseId, classId, personId });
+      const beforeDone = data.progress?.done ?? null;
+      const afterDone = after.progress?.done ?? null;
+      if (beforeDone != null && afterDone != null) {
+        const delta = afterDone - beforeDone;
+        log(`平台计数: ${beforeDone}/${data.progress.total} → ${afterDone}/${after.progress.total}（+${delta}）`);
+        if (delta === 0 && handled > 0) {
+          log('');
+          log('⚠ 提交了 ' + handled + ' 个，但计数没涨。可能是：');
+          log('  ① 这些任务点其实早就完成了（平台幂等，重复提交不重复计数）');
+          log('  ② 服务端延迟记账 —— 隔几分钟再看一次');
+          log('  ③ 会话可信度不足（见 docs/PROGRESS-FINDINGS.md）');
+          log('  **不要只看「提交成功」就以为清了，以这里的计数为准。**');
+        } else if (delta > 0 && delta < handled) {
+          log(`  注意：提交 ${handled} 个，只涨 ${delta} 个 —— 其余要么早完成了，要么只处理了一部分。`);
+        }
+      }
+    } catch (e) {
+      log(`  回读失败（不影响已完成的部分）：${e.message}`);
+    }
+
+    if (pendingQuiz.length) {
+      log(`\n还有 ${pendingQuiz.length} 个测验/作业没做（需要 AI 答题）：`);
+      for (const q of pendingQuiz.slice(0, 20)) {
+        log(`  [kid ${q.knowledgeId}] ${q.title}`);
+      }
+      log('\n  取题：cxa quiz --cid <id> --clz <id> --kid <kid> --dump');
+      log('  交答案：cxa quiz --cid <id> --clz <id> --kid <kid> --submit \'{"<qid>":"A"}\' --yes');
+    }
+
     const skipList = Object.entries(skipped);
     if (skipList.length) {
-      log('\n需要你自己处理的清单：');
+      log('\n未自动处理的清单：');
       for (const [kid, kind] of skipList.slice(0, 100)) {
         const item = data.chapters.find((c) => String(c.knowledgeId) === String(kid));
         log(`  [kid ${kid}] [${kind}] ${item?.title ?? ''}`);
       }
     }
     log(`\n进度状态文件: ${stateFile(courseId)}`);
-    log('提醒：播放成功不等于平台记账，详见 docs/PROGRESS-FINDINGS.md');
+    log('提醒：文档/阅读任务点是「一个请求就记上账」；视频要真播，且平台认不认取决于会话可信度。');
+    log('      跑完用 `cxa check --json` 看计数前后有没有变。');
     return failed > 0 ? 1 : 0;
   } finally {
     await session.close();
