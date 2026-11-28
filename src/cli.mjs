@@ -94,9 +94,9 @@ const USAGE = `
       --download <目录>
   cxa play --cid <id> --clz <id>          后台连播视频（题目/文档跳过）
   cxa check [--cid --clz]                 跑判据门
-  cxa audit [--json] [--fix]              交付面审计：文档数字/清单/过时结论 vs 实现
+  cxa audit [--json] [--fix] [--with-tests]   交付面审计：文档数字/清单/过时结论 vs 实现
   cxa heal [--apply --yes] [--commit]     自愈：按配方自动改代码（默认预演，不碰文件）
-      --with-tests                        连文档数字一起修（会跑一遍单测，约 30 秒）
+      --with-tests                        连文档数字一起修（跑单测 + 自检，约 60 秒）
   cxa mcp                                 以 MCP server 方式运行（stdio）
 
 play 选项：
@@ -1332,6 +1332,33 @@ async function cmdPlay() {
 }
 
 /**
+ * 跑真实测试，拿到两个「只有跑起来才知道」的数字：单测条数、自检项数。
+ * `--with-tests` 专用（单测 + 自检各约 30 秒）。
+ * 拿不到的项**不填**，让判据显形为 skip，绝不猜一个数字填进去。
+ * `audit` 与 `heal` 共用，避免两处各写一份、将来再次漂移。
+ */
+async function collectActualFromTests(cwd) {
+  const { spawnSync } = await import('node:child_process');
+  const out = {};
+  const testFiles = fs.readdirSync(path.join(cwd, 'test')).filter((f) => f.endsWith('.test.mjs'));
+  const r = spawnSync(process.execPath, ['--test', ...testFiles.map((f) => `test/${f}`)], {
+    cwd, encoding: 'utf8', timeout: 300_000,
+  });
+  const m = ((r.stdout || '') + (r.stderr || '')).match(/# pass (\d+)/);
+  if (m) out.unitTests = Number(m[1]);
+
+  // 自检项数只能从 selftest 的汇总行拿；它内部也会跑一遍单测。
+  const s = spawnSync(process.execPath, ['scripts/selftest.mjs'], {
+    cwd, encoding: 'utf8', timeout: 300_000,
+  });
+  const sOut = (s.stdout || '') + (s.stderr || '');
+  const sm = sOut.match(/自检全绿[（(](\d+)\s*项[）)]/);
+  if (sm) out.selftestItems = Number(sm[1]);
+  else log('  ! 自检未全绿或汇总行解析失败：自检项数保持「跳过」');
+  return out;
+}
+
+/**
  * 交付面审计：文档说的 vs 实际做的。
  *
  * ## 与 `cxa check` 的分工
@@ -1342,9 +1369,10 @@ async function cmdPlay() {
  *
  * ## 为什么不默认跑测试
  *
- * `unitTests` / `selftestItems` 这两个数字要真跑才能得，约 30 秒。
+ * `unitTests` / `selftestItems` 这两个数字要真跑才能得（单测 + 自检，约 60 秒）。
  * 默认快速审计（秒级），慢项显形为 `skip`（不是 pass）。
- * 要全量：`cxa audit --with-tests`。
+ * 要全量：`cxa audit --with-tests`，此时两项都能拿到实际值、跳过数归零。
+ * 拿不到（自检没全绿）就保持 `skip` —— 判不了要显形，不能降级成绿。
  *
  * ## `--fix` 的诚实边界
  *
@@ -1403,16 +1431,8 @@ async function cmdAudit() {
 
   /* ---- 3. 可选：跑测试拿真实条数 ---- */
   if (has('with-tests')) {
-    log('  跑单测（约 30 秒）…');
-    const { spawnSync } = await import('node:child_process');
-    const testFiles = fs.readdirSync(path.join(cwd, 'test')).filter((f) => f.endsWith('.test.mjs'));
-    const r = spawnSync(process.execPath, ['--test', ...testFiles.map((f) => `test/${f}`)], {
-      cwd,
-      encoding: 'utf8',
-      timeout: 300_000,
-    });
-    const m = ((r.stdout || '') + (r.stderr || '')).match(/# pass (\d+)/);
-    if (m) actual.unitTests = Number(m[1]);
+    log('  跑单测 + 自检拿真实条数（约 60 秒）…');
+    Object.assign(actual, await collectActualFromTests(cwd));
   }
 
   /* ---- 4. 跑审计 ---- */
@@ -1546,18 +1566,10 @@ async function cmdHeal() {
   const mcpSrc = readIf('mcp/server.mjs') || '';
   actual.mcpTools = [...new Set([...mcpSrc.matchAll(/\b(cx_[a-z]+)\s*:/g)].map((m) => m[1]))].length;
 
-  // 文档数字要修，必须先知道真实单测条数 —— 只有 --with-tests 才跑（约 30 秒）
+  // 文档数字要修，必须先知道真实条数 —— 只有 --with-tests 才跑（约 60 秒）
   if (has('with-tests')) {
-    log('  跑单测拿真实条数（约 30 秒）…');
-    const { spawnSync } = await import('node:child_process');
-    const testFiles = fs.readdirSync(path.join(cwd, 'test')).filter((f) => f.endsWith('.test.mjs'));
-    const r = spawnSync(process.execPath, ['--test', ...testFiles.map((f) => `test/${f}`)], {
-      cwd,
-      encoding: 'utf8',
-      timeout: 300_000,
-    });
-    const m = ((r.stdout || '') + (r.stderr || '')).match(/# pass (\d+)/);
-    if (m) actual.unitTests = Number(m[1]);
+    log('  跑单测 + 自检拿真实条数（约 60 秒）…');
+    Object.assign(actual, await collectActualFromTests(cwd));
   }
 
   const ctx = { read: readIf, manifest, pkg, docs, actual, cliCases };
@@ -1581,7 +1593,7 @@ async function cmdHeal() {
       log('  cxa heal --apply --yes            # 真改');
       log('  cxa heal --apply --yes --commit   # 改完验证通过就提交');
       log('');
-      log('  想连文档数字一起修：加 --with-tests（会跑一遍单测）');
+      log('  想连文档数字一起修：加 --with-tests（跑单测 + 自检，约 60 秒）');
     } else {
       log('✓ 没有需要自动修的问题');
     }
