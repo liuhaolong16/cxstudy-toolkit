@@ -1,7 +1,7 @@
 {
   "name": "cxstudy-toolkit",
-  "version": "0.2.0",
-  "description": "超星学习通小助手：刷课过任务点、整理课程资料、按考试生成备考档案。不伪造任何学习记录。",
+  "version": "0.3.0",
+  "description": "超星学习通小助手：刷课过任务点、整理课程资料、生成本学期日历提醒、按考试出备考档案。不伪造任何学习记录。",
   "type": "module",
   "bin": {
     "cxa": "./src/cli.mjs",
@@ -9,13 +9,20 @@
   },
   "exports": {
     ".": "./src/index.mjs",
-    "./mcp": "./mcp/server.mjs"
+    "./mcp": "./mcp/server.mjs",
+    "./paths": "./src/paths.mjs"
   },
   "files": [
     "src",
     "mcp",
-    "dsh",
+    "scripts",
     "docs",
+    "extension",
+    "workbuddy",
+    "dsh",
+    "llms.txt",
+    "AGENTS.md",
+    "CHANGELOG.md",
     "README.md",
     "DISCLAIMER.md",
     "LICENSE"
@@ -24,24 +31,36 @@
     "node": ">=22.0.0"
   },
   "scripts": {
+    "selftest": "node scripts/selftest.mjs",
     "test": "node --test test/*.test.mjs",
     "check": "node src/cli.mjs check",
     "scan": "node scripts/scan-secrets.mjs",
-    "mcp": "node mcp/server.mjs"
+    "mcp": "node mcp/server.mjs",
+    "brief": "node src/cli.mjs brief",
+    "today": "node src/cli.mjs schedule --today"
   },
   "keywords": [
     "chaoxing",
     "xuexitong",
+    "学习通",
+    "超星",
     "mcp",
     "automation",
     "headless",
     "education",
     "study-assistant",
-    "exam-prep"
+    "exam-prep",
+    "timetable",
+    "ics",
+    "calendar"
   ],
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/liuhaolong16/chaoxing-assistant.git"
-  }
+  },
+  "bugs": {
+    "url": "https://github.com/liuhaolong16/chaoxing-assistant/issues"
+  },
+  "homepage": "https://github.com/liuhaolong16/chaoxing-assistant#readme"
 }

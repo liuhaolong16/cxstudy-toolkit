@@ -7,57 +7,94 @@
 
 一个零第三方依赖的 Node 工具（Node >= 22），把超星学习通/学习通 PC 端的能力整理成三种接口：
 
-- **CLI**：命令 `cxa`（旧别名 `cxstudy`）
-- **MCP server**：`node mcp/server.mjs`（stdio，newline-delimited JSON-RPC）
+- **CLI**：命令 `cxa`（旧别名 `cxstudy`），14 个子命令
+- **MCP server**：`node mcp/server.mjs`（stdio，newline-delimited JSON-RPC），10 个工具
 - **文件协议**：`.captcha-tmp/`、`.cxstudy-questions/` 等目录里读写 JSON，任何能读文件写文件的客户端都能接
 
-能力：读课程/章节/任务点进度、后台播放视频、列课程资料并下载、查考试安排与课表与通知、章节测验 AI 读图作答。
+## 能力清单
+
+### 查
+
+| 做什么 | 命令 | MCP |
+|---|---|---|
+| 会话自检 | `cxa auth status` | `cx_status` |
+| 课程列表 | `cxa courses` | `cx_courses` |
+| 章节与任务点进度 | `cxa chapters --cid --clz` | `cx_chapters` |
+| 考试安排（默认只要未结束的） | `cxa exams [--all]` | `cx_exams` |
+| 通知中心 | `cxa notices [--work]` | `cx_notices` |
+| 资料区（列/搜/下载） | `cxa materials --find <词>` | `cx_materials` |
+
+### 课表与时间安排
+
+| 做什么 | 命令 |
+|---|---|
+| 当前周课表 | `cxa schedule` |
+| 今天 / 明天 + 空闲时段 | `cxa schedule --today` / `--tomorrow` |
+| **导出手机日历（带提前提醒）** | `cxa schedule --ics <目录>` |
+| 未来 N 天：课 + 考试 + 空闲 | `cxa plan [--days 14]` |
+| 一段粘给 AI 的 Markdown 简报 | `cxa brief [--days 7]` |
+
+**`.ics` 是唯一离线也会响的提醒方式**（系统日历推送）。每个事件带提前 20 分钟
+的 VALARM，可用 `--alarm N` 改、`--no-alarm` 关。
+
+### 备考档案
+
+```
+cxa exam --course <课程名> [--out <目录>] [--json]
+```
+
+把四个来源按课程聚合成一份 Markdown：资料区（课件按章归组）/ 考试（倒计时）/
+通知附件（作业入口带 url）/ 通知正文（老师通知）。
+
+**它不生成复习重点。** 哪些是重点取决于老师考纲和学生掌握程度，程序不知道；
+没有考纲时只能编，编出来的重点会把复习方向带偏。档案末尾附一段可粘给 AI 的
+提示词，并明确要求「信息不够就直接说缺什么，不要编」。
+
+### 刷课
+
+| 做什么 | 命令 | MCP |
+|---|---|---|
+| 后台静默连播视频 | `cxa play --cid --clz` | `cx_play` |
+| 判据门 | `cxa check` | `cx_gates` |
+
+### 推送到手机
+
+```
+cxa notify channels        # 列出 5 个通道与各自怎么拿 key
+cxa notify set --channel <通道> --key <key>
+cxa notify test            # 发测试消息
+cxa notify brief           # 推简报
+```
+
+通道：`wecom`（企业微信）/ `feishu`（飞书）/ `dingtalk`（钉钉）/
+`serverchan`（Server酱，微信）/ `pushplus`（PushPlus，微信）。全部零依赖。
+
+**可靠性**：`.ics` + 手机系统日历 ★★★★★（离线也响）；`cxa notify` ★★★☆☆（电脑要开机）。
 
 ## 安装（选一条）
 
 ```bash
-# 方式 A：全局装（推荐，之后直接用 cxa）
 npm install -g github:liuhaolong16/chaoxing-assistant
-
-# 方式 B：不装，clone 后直接用
-git clone https://github.com/liuhaolong16/chaoxing-assistant.git
-cd chaoxing-assistant
-node src/cli.mjs          # 等价于 cxa
-
-# 方式 C：Windows 一键（在 clone 后的目录里）
-install.cmd
+git clone https://github.com/liuhaolong16/chaoxing-assistant.git && cd chaoxing-assistant && node src/cli.mjs
+install.cmd     # Windows 一键
 ```
 
-要求：Node >= 22。Windows / macOS / Linux 都行。**路径里有空格也可以**（例如 `D:\my folder\chaoxing-assistant`），已实测。
+要求 Node >= 22。**路径里有空格也可以**（已实测）。
 
 ## 第一次用（三步）
 
 ```bash
-# 1. 登录：会开一个有头浏览器，你手动扫码/输入账号，登录成功后 cookie 落盘
-cxa auth login
-
-# 2. 自检：确认会话可用
-cxa auth status
-
-# 3. 列课程
-cxa courses
+cxa auth login      # 开有头浏览器，你手动扫码/输账号，cookie 落盘
+cxa auth status     # 确认会话可用
+cxa courses         # 看有哪些课
 ```
 
-cookie 存在 `~/.cxstudy-toolkit/cookies.json`（跨平台）。**不会上传任何地方。**
-
-## 常用命令
-
-```
-cxa courses                              列出课程（含 courseId / classId / personId）
-cxa chapters --cid <id> --clz <id>       章节 + 任务点进度
-cxa play --cid <id> --clz <id>           后台静默连播视频
-cxa check                                判据门（会话/目标/进度逐条红绿）
-cxa mcp                                  以 MCP server 方式运行
-```
+cookie 存 `~/.cxstudy-toolkit/cookies.json`，可用环境变量 `CXA_HOME` 改到别处。
+**不会上传任何地方。**
 
 ## 接入 AI 客户端
 
-### 已经支持 MCP 的客户端
+### 已经支持 MCP 的（Claude Code / Cursor / WorkBuddy / 千问桌面端）
 
 MCP 配置（stdio）：
 
@@ -72,25 +109,16 @@ MCP 配置（stdio）：
 }
 ```
 
-`<仓库绝对路径>` 换成你 clone 的位置。Windows 上写正斜杠或双反斜杠都行。
-
-配好后你能用的工具：`cx_status`、`cx_courses`、`cx_chapters`、`cx_play`、`cx_http`、`cx_gates`。
-
-**建议的调用顺序**：`cx_status` → `cx_courses` → `cx_chapters` → `cx_play`。出问题先跑 `cx_status`。
-
-### 只有命令行但没有 MCP 的客户端
-
-让 AI 执行 `cxa <子命令> --json`，输出是机器可读的。AI 读懂后自己决定下一步。
+**建议的调用顺序**：`cx_status` → `cx_schedule` → `cx_exams` → `cx_notices` → `cx_materials`。
+出问题先跑 `cx_status`。
 
 ### 手机端 AI（豆包 / WorkBuddy / 千问）
 
-**它们可以远程操控你的电脑**，所以能调用本项目的命令和 MCP 工具。详见
-`docs/AI-CLIENT-INTEGRATION.md`（含官方来源链接）。
-
-三条已验证的事实：
+**它们可以远程操控你的电脑**，所以能调用本项目的命令与 MCP 工具。
+详见 `docs/AI-CLIENT-INTEGRATION.md`（含官方来源链接）。三条已验证的事实：
 
 - **WorkBuddy**：手机是桌面端的「远程控制台」——手机发指令、**在电脑上执行**，
-  能远程配置连接器，能**遥控电脑建定时任务**（每天/每周），任务完成会**主动通知到手机**。
+  能远程配置连接器，能**遥控电脑建定时任务**（每天/每周），任务完成**主动通知到手机**。
 - **豆包**：电脑装「豆包电脑版」+ 手机同账号，在「工作任务」→「云电脑」→「添加新的本地电脑」
   授权后，**手机下达任务、电脑端读取本地文件并执行**，结果回传手机。
 - **千问**：Qwen Chat 桌面客户端支持调用 MCP；手机端远程操控未找到官方文档，不猜。
@@ -99,20 +127,18 @@ MCP 配置（stdio）：
 电脑执行后把结果推回手机。**不是靠聊天 AI 主动推送**，而是 AI 的定时任务 + 通知。
 
 **失效面**：电脑关机/断网/睡眠 → 定时任务和远程指令都不执行。
-所以**不能漏的提醒（考试、交作业）一律走 `.ics` + 手机系统日历**，那条离线也响。
+所以**不能漏的提醒（考试、交作业）一律走 `.ics` + 手机系统日历**。
 
 ### 只有命令行、没有 MCP 的客户端
 
 让 AI 执行 `cxa <子命令> --json`，输出是机器可读的。
 
-### 纯网页版聊天（没有本地执行能力）
+### 纯网页版聊天
 
-只有这种情况才需要你手动复制命令到终端。判断标准很简单：
-**它有没有"远程操控电脑"或"MCP"的能力**——有就走上面两档，没有就只能手动。
+只有这种情况才需要手动复制命令到终端。判断标准：**它有没有"远程操控电脑"或"MCP"的
+能力**——有就走上面两档，没有就只能手动。
 
 ## 硬边界（请让 AI 遵守）
-
-这个项目**明确不做**以下事情，如果用户要求，请拒绝并说明原因：
 
 | 不做 | 原因 |
 |---|---|
@@ -121,6 +147,7 @@ MCP 配置（stdio）：
 | 绕过验证码、设备指纹、行为风控 | 验证码的目的是区分人机 |
 | 多账号批处理 | 只服务使用者自己的账号 |
 | 分发盗版教材 / 维护题库服务器 | — |
+| **生成"复习重点"** | 没有考纲时只能编，编出来的会把复习方向带偏 |
 
 ## 一个必须提前说清的限制
 
@@ -129,11 +156,10 @@ MCP 配置（stdio）：
 要真的让任务点变绿，需要**浏览器扩展**装在你自己登录过的 Chrome 里：
 
 ```bash
-# Windows
-powershell -ExecutionPolicy Bypass -File scripts\install-extension.ps1
+powershell -ExecutionPolicy Bypass -File scripts\install-extension.ps1   # Windows
 ```
 
-原因与实测证据见 `docs/PROGRESS-FINDINGS.md`，扩展原理见 `docs/EXTENSION.md`。
+原因与实测证据见 `docs/PROGRESS-FINDINGS.md`。
 
 **这条必须告诉用户**，否则他会以为工具坏了。
 
@@ -144,7 +170,9 @@ powershell -ExecutionPolicy Bypass -File scripts\install-extension.ps1
 | 任何异常 | `cxa auth status` |
 | 报「未登录」 | `cxa auth login` |
 | 列表为空 | `cxa check`，看是哪道门红了 |
+| 推送没收到 | `cxa notify test`，看返回的业务码 |
 | MCP 连不上 | `node mcp/server.mjs` 手工发一个 initialize 看有没有回包 |
+| 想确认项目没坏 | `node scripts/selftest.mjs`（语法/单测/密钥/命令/MCP/文档 8 项） |
 
 ## 项目坐标
 

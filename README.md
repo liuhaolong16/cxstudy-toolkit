@@ -1,79 +1,170 @@
 # 超星学习通小助手
 
-> 命令行工具名：**`cxa`**（旧名 `cxstudy` 保留为别名，两者等价）
-> 仓库：`liuhaolong16/chaoxing-assistant`（旧地址 `cxstudy-toolkit` 自动重定向）
+> 把学习通里的「上课、考试、作业、课件、通知」整理出来，刷课过任务点，说一句「我要考试了」就出一份备考档案。
+>
+> 命令行 `cxa`（旧别名 `cxstudy`）· 也可作为 MCP server 被任何 AI 客户端调用。
 
-> **先看这一条**：**能否让任务点变成「已完成」，取决于跑在哪个浏览器里。**
-> 用本工具的 CLI（headless 或有头）播放，视频会真实播放、心跳会上报，但学习通**不认账**；
-> 装 [浏览器扩展](extension/) 在你**自己登录过的浏览器**里播放，才能被记为完成。
-> 原因与实测证据见 [docs/PROGRESS-FINDINGS.md](docs/PROGRESS-FINDINGS.md)，扩展原理见 [docs/EXTENSION.md](docs/EXTENSION.md)。
-> 本工具**不是刷课器**：视频时长一秒一秒走，不伪造任何上报。使用前请读 [DISCLAIMER.md](DISCLAIMER.md)。
+---
 
-一个零第三方依赖的 Node 工具包，把学习通的读写能力整理成 CLI、库和 MCP server 三份接口：
+## 它能做什么
 
-| 能力 | 说明 |
+| 想做的事 | 一句话 | 命令 |
+|---|---|---|
+| 看今天上什么课 | 几点、哪间教室、哪个老师，还有空闲时段 | `cxa schedule --today` |
+| 到点提醒上课 | 导进手机日历，提前 20 分钟响，**离线也响** | `cxa schedule --ics <目录>` |
+| 安排复习时间 | 未来 N 天的课 + 考试 + 各段空闲 | `cxa plan` |
+| 备考一门课 | 课件按章归组 + 考试倒计时 + 作业入口 + 老师通知，合成一份档案 | `cxa exam --course <名>` |
+| 找课件 | 递归搜、批量下载 | `cxa materials --find <词>` |
+| 看考试安排 | 未结束的考试、倒计时 | `cxa exams` |
+| 看作业 | 通知里的作业入口，每条都带可直接打开的链接 | `cxa notices --work` |
+| 看老师通知 | 未读、按课程分 | `cxa notices` |
+| 刷课过任务点 | 后台静默连播视频 | `cxa play` |
+| 让 AI 帮你干 | 10 个 MCP 工具，或把简报粘给手机 AI | `cxa mcp` / `cxa brief` |
+| 推到手机 | 企业微信 / 飞书 / 钉钉 / Server酱 / PushPlus | `cxa notify brief` |
+
+**14 个命令，10 个 MCP 工具，147 条单测。**
+
+---
+
+## 安装
+
+```bash
+# 方式 A：全局装（推荐）
+npm install -g github:liuhaolong16/chaoxing-assistant
+
+# 方式 B：clone 后直接用
+git clone https://github.com/liuhaolong16/chaoxing-assistant.git
+cd chaoxing-assistant
+node src/cli.mjs      # 等价于 cxa
+
+# 方式 C：Windows 一键
+install.cmd
+```
+
+**要求**：Node >= 22。Windows / macOS / Linux 都行。路径里有空格也没问题（实测 `D:\deep seek工作区3\...`）。
+
+---
+
+## 第一次用：三步
+
+```bash
+cxa auth login      # ① 会开一个有头浏览器，你手动登录，cookie 落盘
+cxa auth status     # ② 确认会话可用
+cxa courses         # ③ 看看有哪些课
+```
+
+cookie 存在配置目录，**不会上传任何地方**：
+
+| 平台 | 位置 |
 |---|---|
-| **读课程** | 课程列表、章节结构、知识点 id、「已完成任务点」进度 |
-| **后台播放** | 无头 Chrome 打开知识点，静音连播视频，题目/文档自动跳过并登记 |
-| **课程资料** | 资料区列表、按关键词递归搜索、批量下载到本地 |
-| **考试与课表** | 全校考试安排、课表（可导出 .ics）、通知中心 |
-| **章节测验** | 截图 → AI 读图作答 → 点选 → 暂时保存 / 提交（三模式） |
-| **MCP server** | 接入任意 MCP 客户端（Claude / Cursor / DSH 等） |
-| **判据门** | `cxa check` 五道门，逐条给红绿与证据 |
-
-支持 Windows / macOS / Linux（Chrome 或 Edge 均可）。实际验证环境：Windows 11 + Chrome 157/158 + Node 22。
+| 默认 | `~/.cxstudy-toolkit/cookies.json` |
+| 自定义 | 设环境变量 `CXA_HOME` 指到别处 |
 
 ---
 
-## 它解决什么问题
+## 最常用的一条：导手机日历
 
-- 你有几十门课，不知道哪门差得多 → `cxa courses` + `cxa chapters`
-- 课件要点开一页页找 → 拿到章节结构与知识点 id，可自行批量处理
-- 老师发的资料散在资料区里 → `cxa materials` / 递归搜关键词 / 批量下载
-- 想知道什么时候考试、还有什么作业没交 → `cxa exams` / `cxa homework`
-- 想把视频挂在后台播放（人不在电脑前）→ `cxa play`
-- 想让自己写的 Agent 直接操作学习通 → MCP server
+```bash
+cxa schedule --ics D:\我的日历
+```
 
-## 它**不**做什么
+生成本学期全部课程事件，**每个事件带提前 20 分钟提醒**。把 `.ics` 发到手机，日历 App 里「从文件导入」。
 
-- 不调用接口伪造「已完成」状态或学习时长
-- 不绕过验证码、设备指纹、行为风控
-- 不做多账号批处理
-- **不做考试中的实时答题**（那是作弊；考前复习档案才是本工具做的事）
-- 不维护题库服务器、不分发盗版教材
+> **为什么这个最重要**：它是唯一**离线也会响**的提醒。手机 AI 的定时任务要电脑开机，`.ics` 不需要。
+
+```bash
+cxa schedule --ics D:\我的日历 --alarm 30    # 改成提前 30 分钟
+cxa schedule --ics D:\我的日历 --no-alarm    # 不要提醒
+```
 
 ---
 
-## 把仓库地址丢给 AI，它能替你做什么
+## 备考档案：这个项目最想做的事
 
-先说结论，因为不同客户端的能力差别很大：
+你说「我要考试了，考的是有机化学」，工具该去把这门课的东西全找出来。
 
-| 你的 AI | 能做到 | 做不到 |
-|---|---|---|
-| **Claude Code / Codex / Cursor / DSH** | 完整：clone、装、配 MCP、调用工具 | — |
-| **WorkBuddy 手机端 → 电脑** | 手机是桌面端的「远程控制台」：发指令在电脑执行、远程配连接器、**遥控电脑建定时任务**、任务完成**主动通知手机** | 电脑关机/断网/睡眠时全部失效 |
-| **豆包（电脑版 + 手机「工作任务」）** | 「添加新的本地电脑」授权后，手机下任务、**电脑读本地文件并执行**、结果回传手机 | 同上；且未见官方 MCP 支持 |
-| **千问 Qwen Chat（桌面端）** | 支持调用 MCP | 手机端远程操控未见官方文档 |
+```bash
+cxa exam --course 有机化学 --out D:\备考
+```
 
-**关键**：手机端 AI 能"提醒你上课"，靠的不是它主动推送，而是**在手机上给电脑建一个定时任务**（如每天 7:30 跑 `cxa brief`），电脑执行后把结果和通知推回手机。
+四个来源按课程聚合：
 
-**但电脑睡了就不响。** 所以不能漏的提醒（考试、交作业）**一律走 `.ics` + 手机系统日历**，那条离线也响。
+| 来源 | 拿到什么 |
+|---|---|
+| 资料区 | 课件 PDF/PPT，**按章号归组** |
+| 考试 | 时间、时长、倒计时 |
+| 通知附件 | 作业入口（带完整 url） |
+| 通知正文 | 老师发的通知 |
 
-完整接入步骤与官方来源链接见 [`docs/AI-CLIENT-INTEGRATION.md`](docs/AI-CLIENT-INTEGRATION.md)。
+实测输出（有机化学，37 份课件）：
 
-**豆包/千问做不到不是因为没做适配，而是纯聊天客户端本身没有本地执行权限。** 指望它"帮你装好"会落空；让它"读懂并一步步指导你"完全可行。
+```
+## 一、课件资料
+### 第 0 章
+- 0.1有机化合物与有机化学.pdf
+### 第 2 章
+- 2.1 烷烃的结构.pdf
+- 2.2 烷烃的卤代反应及反应机理.pdf
+...
+### 第 11 章
+- 11.1β-二羰基化合物基础知识.pdf
+```
 
-### 为此提供三个入口文件
+**一眼看出老师讲到第 11 章。**
 
-| 文件 | 给谁读 | 作用 |
-|---|---|---|
-| **`llms.txt`** | 任何 AI | 一页说清是什么、怎么装、怎么用、硬边界。**把仓库 URL 丢给 AI，让它先读这个** |
-| `AGENTS.md` | 编码 Agent（Claude Code / Cursor / Codex） | 项目结构、改动节奏与已知坑 |
-| `README.md` | 人 | 完整说明 |
+### 一条边界，写在档案里也写在代码注释里
 
-### 已经支持 MCP 的客户端
+**这份档案不生成复习重点。**
 
-MCP 配置（stdio）：
+哪些是重点取决于老师考纲和你自己的掌握程度，程序不知道。一个自称"自动生成复习重点"的工具，在没有考纲时**只能编**——编出来的"重点"会把复习方向带偏，**比没有更糟**。
+
+所以档案末尾附一段**可粘给 AI 的提示词**，里面明确要求：
+
+> 如果信息不够（比如不知道考纲、不知道我哪章最弱），**直接告诉我缺什么，不要编**
+
+---
+
+## 三条提醒路，自己选
+
+| 路 | 命令 | 会不会响 | 前提 |
+|---|---|---|---|
+| **① 系统日历** | `cxa schedule --ics` | **会**（离线也响） | 无 |
+| ② 粘给 AI | `cxa brief` | 不会 | 无 |
+| ③ 推手机 | `cxa notify brief` | 会 | 电脑开机 |
+
+**不能漏的（考试、交作业）走 ①。顺带看的走 ③。**
+
+第 ③ 条支持 5 个通道，都不用装依赖：
+
+```bash
+cxa notify channels      # 看各自怎么拿 key
+```
+
+| 通道 | 怎么拿 |
+|---|---|
+| `wecom` | 企业微信群 → 群机器人 → 复制 Webhook |
+| `feishu` | 飞书群 → 群机器人 → 复制 Webhook |
+| `dingtalk` | 钉钉群 → 智能群助手 → 自定义 → Webhook |
+| `serverchan` | sct.ftqq.com 微信扫码 → SendKey |
+| `pushplus` | pushplus.plus 微信扫码 → token |
+
+**后两个最省事**：不用装企业微信/飞书，微信扫码就能收。
+
+```bash
+cxa notify set --channel pushplus --key <你的token>
+cxa notify test        # 发条测试消息确认真通了
+cxa notify brief       # 每天推简报
+```
+
+> 这些 API **常返回 HTTP 200 但 body 里带错误码**。本项目验的是业务码，不是状态码——只看状态码会得出"推送成功"的假结论。
+
+---
+
+## 接入 AI
+
+三种方式，按你的客户端挑：
+
+### 已经支持 MCP 的（Claude Code / Cursor / WorkBuddy / 千问桌面端）
 
 ```json
 {
@@ -86,340 +177,206 @@ MCP 配置（stdio）：
 }
 ```
 
-配好后的工具：`cx_status` / `cx_courses` / `cx_chapters` / `cx_play` / `cx_http` / `cx_gates`。
+配好后的 10 个工具：
 
-**建议调用顺序**：`cx_status` → `cx_courses` → `cx_chapters` → `cx_play`。出问题先跑 `cx_status`。
-
-### 一键安装（Windows）
-
-```cmd
-install.cmd
-```
-
-双击即可。它会检查 Node 版本、验证文件完整、把 `cxa` 注册到 PATH、跑一次冒烟测试。**实测在带空格的路径下也能装**（`D:\deep seek工作区3\...` → `cxa` 全局可用）。
-
-**两个安装脚本刻意全 ASCII**：PowerShell 5.1 读无 BOM 的 `.ps1` 时按 ANSI 解码，中文注释会把大括号解析搞坏（`Unexpected token '}'`）；`cmd.exe` 更是在 `chcp` 生效前就解析完了。中文文档因此只放 `README.md`、`llms.txt`、`AGENTS.md`。
-
-## 安装
-
-需要 **Node 22+**（依赖内置 WebSocket）和 **Chrome / Edge**。
-
-```bash
-# 直接从 GitHub 安装
-npm install -g github:liuhaolong16/cxstudy-toolkit
-
-# 或克隆后本地使用
-git clone https://github.com/liuhaolong16/cxstudy-toolkit.git
-cd cxstudy-toolkit
-node src/cli.mjs --help
-```
-
-## 快速开始
-
-```bash
-# 1. 登录（会弹一个浏览器窗口，扫码或账号密码都行，登录后自动抓到 cookie）
-cxa auth login
-
-# 2. 看课程，记下 courseId / classId
-cxa courses
-
-# 3. 看某门课的章节与当前进度
-cxa chapters --cid 246180456 --clz 106042289
-
-# 4. 先干跑一遍，确认要播哪些
-cxa play --cid 246180456 --clz 106042289 --dry-run --limit 3
-
-# 5. 真的播（后台，静音，播完自动下一节）
-cxa play --cid 246180456 --clz 106042289
-```
-
-`play` 的完整选项：
-
-| 选项 | 说明 |
+| 工具 | 干什么 |
 |---|---|
-| `--kid <id>` | 只播某个知识点 |
-| `--limit <n>` | 最多处理 n 个知识点 |
-| `--rate <x>` | 播放倍率，默认 1.0。**平台可能记录倍率**，自行判断 |
-| `--dry-run` | 只列出将播什么，不实际播放 |
-| `--headed` | 用有头浏览器（窗口移到屏幕外），排查 headless 问题时用 |
-| `--cpi <id>` | 手动指定 personId |
+| `cx_status` | 会话自检（**出问题先跑它**） |
+| `cx_courses` | 课程列表 |
+| `cx_schedule` | 课表（可导出 `.ics`） |
+| `cx_exams` | 考试安排 |
+| `cx_notices` | 通知中心（`onlyWork=true` 只看作业入口） |
+| `cx_materials` | 资料区（列 / 搜 / 下载） |
+| `cx_chapters` | 章节与任务点进度 |
+| `cx_play` | 后台播放 |
+| `cx_http` | 带登录态的只读请求（兜底） |
+| `cx_gates` | 判据门 |
 
-**断点续**：播过的知识点记在 `~/.cxstudy-toolkit/played-<courseId>.json`，中断后重跑自动跳过。
+建议顺序：`cx_status` → `cx_schedule` → `cx_exams` → `cx_notices` → `cx_materials`。
 
-**跳过清单**：作业、测验、PPT、文档、讨论一律不碰，跑完会打印「需要你自己处理的清单」。
+### 手机端 AI（豆包 / WorkBuddy）
 
-## 浏览器扩展（想要「记账」就用这个）
+**能远程操控你的电脑**，所以能调用本项目的命令。
 
-CLI 能播放，但平台不认。要让任务点真的变绿，必须用你自己登录过的浏览器。
+完整接入步骤与官方来源链接见 [`docs/AI-CLIENT-INTEGRATION.md`](docs/AI-CLIENT-INTEGRATION.md)。
 
+要点：
+- **WorkBuddy**：手机是桌面端的「远程控制台」，能远程配连接器、**遥控电脑建定时任务**、任务完成**主动通知手机**
+- **豆包**：电脑装最新版 + 手机同账号，「工作任务」→「云电脑」→「添加新的本地电脑」授权
+- 「到点提醒」靠**在手机上给电脑建定时任务**（如每天 7:30 跑 `cxa brief`），不是聊天 AI 主动推送
+
+### 只有命令行没有 MCP 的
+
+让 AI 执行 `cxa <子命令> --json`，输出是机器可读的。
+
+### 什么都不支持的（纯网页版聊天）
+
+让 AI 读 [`llms.txt`](llms.txt)，它就知道这个项目是干什么的、怎么装、边界在哪。你手动执行命令。
+
+---
+
+## 命令参考
+
+### 查
+
+```bash
+cxa auth status                     # 会话可用吗
+cxa courses                         # 有哪些课
+cxa chapters --cid <id> --clz <id>  # 章节与任务点进度
+cxa exams [--all] [--json]          # 考试（默认只要未结束的）
+cxa notices [--work] [--all]        # 通知（--work 只看作业/考试入口）
 ```
-extension/
-├── manifest.json    MV3 清单
-└── content.js       自动连播逻辑（2x 静音、播完下一节、无视频跳过）
+
+### 课表与时间
+
+```bash
+cxa schedule                        # 当前周
+cxa schedule --week 13              # 指定周
+cxa schedule --today                # 今天 + 空闲时段
+cxa schedule --tomorrow             # 明天
+cxa schedule --ics <目录>            # 导出全学期日历（带提醒）
+cxa plan [--days 14]                # 未来 N 天：课 + 考试 + 空闲
+cxa brief [--days 7]                # 一段粘给 AI 的 Markdown
 ```
 
-**装法（不需要网络，不需要应用商店）**
+### 资料
 
-```powershell
+```bash
+cxa materials --course <名>                    # 根目录
+cxa materials --course <名> --find <关键词>     # 递归搜（匹配完整路径）
+cxa materials --course <名> --find <词> --download <目录>   # 搜到就下
+cxa materials --cid <id> --clz <id>            # 多门同名课时指定
+```
+
+### 备考
+
+```bash
+cxa exam --course <名> [--out <目录>] [--json]
+```
+
+### 刷课
+
+```bash
+cxa play --cid <id> --clz <id>
+cxa play --dry-run          # 只看会播什么
+cxa play --rate 2           # 倍速
+```
+
+### 推送
+
+```bash
+cxa notify channels
+cxa notify set --channel <通道> --key <key>
+cxa notify status
+cxa notify test
+cxa notify brief [--dry-run]
+```
+
+### 自检
+
+```bash
+cxa check                    # 判据门
+node scripts/selftest.mjs    # 全量自检（语法/单测/密钥/命令/MCP/文档）
+```
+
+---
+
+## 它**不**做什么
+
+- **不做考试中的实时答题**（那是作弊；考前复习档案才是本工具做的事）
+- **不伪造**任务点完成状态或学习时长
+- **不绕过**验证码、设备指纹、行为风控
+- 不做多账号批处理
+- 不维护题库服务器、不分发盗版教材
+- **不生成"复习重点"**——没有考纲时只能编，编出来的会把复习方向带偏
+
+---
+
+## 一个必须提前说清的限制
+
+**用 CLI 播放时视频会真实播放，但平台可能不认账**（任务点不变绿）。
+
+要真的让任务点变绿，需要**浏览器扩展**装在你自己登录过的 Chrome 里：
+
+```bash
+# Windows
 powershell -ExecutionPolicy Bypass -File scripts\install-extension.ps1
 ```
 
-脚本会打开 `chrome://extensions`，然后你只需三下：
+原因与实测证据见 [`docs/PROGRESS-FINDINGS.md`](docs/PROGRESS-FINDINGS.md)，扩展原理见 [`docs/EXTENSION.md`](docs/EXTENSION.md)。
 
-1. 打开右上角 **开发者模式**
-2. 点左上角 **加载未打包的扩展程序**
-3. 选 `extension` 目录（脚本已把路径放进剪贴板，直接 Ctrl+V）
+---
 
-装好后打开任意学习通视频页，右下角会出现浮窗：
+## 文档索引
 
-```
-超星自动连播
-1824/6232 · 2x · 静音
-[暂停] [下一节]
-```
-
-它会自己一节课一节课往下播，跳转后浮窗仍在（这才是和 CLI 的本质区别）。
-
-细节与排错见 [docs/EXTENSION.md](docs/EXTENSION.md)。
-
-## MCP 接入
-
-```bash
-cxa mcp        # 以 stdio 方式启动
-```
-
-在 MCP 客户端里注册：
-
-```json
-{
-  "mcpServers": {
-    "cxstudy": {
-      "command": "npx",
-      "args": ["-y", "github:liuhaolong16/cxstudy-toolkit", "mcp"]
-    }
-  }
-}
-```
-
-暴露的工具：
-
-| 工具 | 作用 |
+| 文档 | 讲什么 |
 |---|---|
-| `cx_status` | 会话自检 |
-| `cx_courses` | 课程列表 |
-| `cx_chapters` | 章节 + 进度（启动浏览器，约 10s） |
-| `cx_play` | 后台连播（耗时≈视频总长） |
-| `cx_http` | 带 cookie 的只读请求兜底 |
-| `cx_gates` | 跑判据门 |
+| [`llms.txt`](llms.txt) | **给 AI 读的**一页说明：是什么、怎么装、怎么用、边界 |
+| [`AGENTS.md`](AGENTS.md) | **给改代码的 Agent**：结构、改动节奏、硬约定、已知坑 |
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | 模块划分与数据流 |
+| [`docs/API.md`](docs/API.md) | 已验证的学习通接口清单 |
+| [`docs/RECON.md`](docs/RECON.md) | 逆向过程记录（怎么找到这些接口的） |
+| [`docs/PROGRESS-FINDINGS.md`](docs/PROGRESS-FINDINGS.md) | 任务点记账机制的实测结论 |
+| [`docs/EXTENSION.md`](docs/EXTENSION.md) | 浏览器扩展原理 |
+| [`docs/AI-CLIENT-INTEGRATION.md`](docs/AI-CLIENT-INTEGRATION.md) | 豆包/WorkBuddy/千问接入（带官方来源） |
+| [`docs/QUIZ-AI-HELP.md`](docs/QUIZ-AI-HELP.md) | 章节测验读图作答的文件协议 |
+| [`docs/CAPTCHA-AI-HELP.md`](docs/CAPTCHA-AI-HELP.md) | 验证码转人工协助 |
+| [`docs/TOOLCHAIN.md`](docs/TOOLCHAIN.md) | 本机工具链与调试手法 |
+| [`docs/PEER-INSIGHTS.md`](docs/PEER-INSIGHTS.md) | 同类项目借鉴记录 |
+| [`CHANGELOG.md`](CHANGELOG.md) | 版本变更 |
 
-## 作为库使用
+---
 
-```js
-import { listCourses, ChromeSession, listChapters, playKnowledge } from 'cxstudy-toolkit';
-
-const { courses } = await listCourses();
-const course = courses[0];
-
-const session = await ChromeSession.launch({ headless: true, cookies: loadCookies() });
-const data = await listChapters(session, {
-  courseId: course.courseId,
-  classId: course.classId,
-  personId: course.personId,
-});
-console.log(data.progress);   // { done: 26, total: 84 }
-await session.close();
-```
-
-## 判据门
-
-```bash
-cxa check --cid 246180456 --clz 106042289
-```
-
-| 门 | 判据 | 说明 |
-|---|---|---|
-| `env` | Node ≥22、Chrome 可定位 | 环境问题在这里暴露 |
-| `auth` | 接口不再返回「请重新登录」 | 会话是否真的有效 |
-| `target` | courseId/classId 能命中课程列表 | 参数写错在这里拦 |
-| `reachable` | 知识点页能取到可播放的 `<video>` | 播不了在这里暴露 |
-| `progress` | 播放前后「已完成任务点」计数变化 | **当前恒红**，见下 |
-
-`progress` 门恒红是**有意为之**：它如实反映本工具无法让平台记账。详见 [docs/PROGRESS-FINDINGS.md](docs/PROGRESS-FINDINGS.md)。
-
-退出码：`0` 全绿 / `1` 参数或运行错误 / `2` 环境问题 / `3` 有门失败。
-
-## 凭据放在哪
-
-`~/.cxstudy-toolkit/cookies.json`（权限 600，可用 `CX_TOOLKIT_HOME` 改目录）。
-
-**这个文件等同于你的账号**。不要提交、不要发给别人。仓库里有 `scripts/scan-secrets.mjs`，`npm run scan` 会在提交前扫一遍。
-
-也支持不落盘：`CX_COOKIE` 环境变量直接给 Cookie 头。
-
-## 静音保证（四层）
-
-后台播放最怕「看不见的窗口在响」。这个工具做了四层，并且**每一层都能自检**：
-
-| 层 | 机制 | 自检方式 |
-|---|---|---|
-| 1. 进程级 | Chrome 启动带 `--mute-audio` | 启动日志会打印 |
-| 2. 元素级 | 每 800ms 递归所有同源 iframe，强制 `<video>/<audio>` 的 `muted=true` + `volume=0` | `window.__cxCheckSilence()` |
-| 3. WebAudio 级 | 接管 `AudioNode.prototype.connect`，所有连到 `destination` 的节点改接 `gain=0` | 报告里的 `gainsInstalled` |
-| 4. 兜底 | **静音自检不通过就立刻暂停播放**，绝不让它边响边跑 | `playKnowledge` 返回 `status: failed` + 原因 |
-
-独立验证命令：
-
-```bash
-node scripts/verify-silence.mjs --cid <id> --clz <id>
-```
-
-它会真的播放 9 秒，然后读取页面层报告并立刻暂停。实测输出：
+## 项目结构
 
 ```
-注入脚本已生效: 是
-<video> muted=true volume=0 playing=true hasSrc=true
-WebAudio 接管: 0 个 gain
-✓ 静音链路通过
+src/
+  api/        学习通接口（只读为主）
+    client.mjs      HTTP + 不跟随重定向 + 鉴权失败判定
+    courses.mjs     课程列表
+    chapters.mjs    章节与任务点
+    exams.mjs       考试安排（含时间解析）
+    materials.mjs   资料区（列表/递归搜/下载 + 魔数校验）
+    notices.mjs     通知中心（两处字符串套 JSON）
+    schedule.mjs    课表（日期推算 + .ics 导出）
+    quiz.mjs        章节测验
+    job.mjs         任务点（含 enc 签名）
+    heartbeat.mjs   真人属性心跳
+  auth/       凭据（cookie 落盘、交互登录）
+  browser/    CDP、播放器、Chrome 定位
+  gates/      判据门
+  notify/     推送通道（5 个）+ 配置
+  study/      备考档案
+  paths.mjs   配置目录解析（CXA_HOME）
+  cli.mjs     CLI 入口
+mcp/server.mjs  MCP server（stdio）
+scripts/        独立脚本（自检 / 夹具生成 / 播放器 / 探测）
+test/           单测 + fixtures（真实响应裁剪，不是手写理想 HTML）
+docs/           文档
+extension/      浏览器扩展
+workbuddy/      跨客户端协作模板（验证码/答题）
+dsh/            DSH 技能声明的副本
 ```
 
-`WebAudio 接管: 0 个` 是**正常**的——它说明该播放器走的是原生 `<video>` 音频，没有绕过 `muted`。如果哪天平台改成 Web Audio，这个数字会变成 1 以上，机制照样兜住。
+**零第三方依赖**——只用 Node 22 自带能力。
 
-> 注意：第 2/3 层是**页面层**判据，证明页面上没有任何会被播放的音频通路。系统级音量输出不在此检查范围（需要 OS API），由第 1 层的 `--mute-audio` 兜底。
-
-## 已知限制
-
-1. **播放成功 ≠ 平台记账**：CLI 播放（headless 或有头）不会被记入进度；要记账请用上面的浏览器扩展，在你自己登录过的浏览器里播。原因见 [PROGRESS-FINDINGS](docs/PROGRESS-FINDINGS.md)。
-2. 只实测过 Windows 11 + Chrome 157。macOS/Linux 的代码路径按跨平台写，但未实测。
-3. 平台改版会导致选择器失效——相关常量集中在 `src/browser/player.mjs` 顶部的 `SELECTORS`。
-4. 学习通的部分接口有 IP 白名单（如 `specie.chaoxing.com`），本项目不依赖它们。
-5. 播放耗时等于视频总时长，**不存在加速刷完**。
-
-## 章节测验怎么处理（三模式）
-
-课程里的测验/作业有两个关键事实，先说清楚：
-
-**1. 「暂时保存」不等于完成。** 页面上有「暂时保存」和「提交」两个按钮，保存只存草稿，任务点继续亮橙色「待完成」，课程进度不会涨。**只有提交才会被平台记账。**
-
-**2. 提交不可逆。** 交上去不能改，错了就是错了。而题目里有化学结构图、计算题这类需要专业判断的内容，AI 读图作答的正确率约 60-70%。
-
-所以按课程性质选模式：
-
-```bash
-# 任务点完成数敏感的课（差几个任务点就过不了）—— 用 submit
-node scripts/run-course.mjs --course <id> --clazz <id> --quiz-mode submit
-
-# 成绩敏感的课（GPA 算分）—— 用 save，人工改完再提交
-node scripts/run-course.mjs --course <id> --clazz <id> --quiz-mode save
-
-# 只想把视频和文档刷完 —— 用 skip
-node scripts/run-course.mjs --course <id> --clazz <id> --quiz-mode skip
-```
-
-| 模式 | 会做什么 | 任务点 | 成绩 |
-|---|---|---|---|
-| `submit` | 答完直接提交 | ✅ 变成已完成 | 由 AI 正确率决定 |
-| `save` | 只暂时保存 | ❌ 仍是待完成 | 可人工改后提交 |
-| `skip` | 完全不碰测验 | ❌ | 保留给你 |
-
-**默认是 `save`**——不替人做不可逆的决定。
-
-### 提交前有硬性检查
-
-`submit` 模式下，脚本会核对「答案条数 == 题目数」。**缺任何一题就拒绝提交，退回保存**：
-
-```
-✗ 拒绝提交：7 题没有答案（缺 4,5,6,7,8,9,10）
-→ 已改为暂时保存
-```
-
-这条规则来自一次真实事故：某套卷答案文件只有 3 条，流程照跑，填 3 题就提交，成绩 20 分。事后翻成绩页才发现 7 题是空的——**不是答错，是根本没答**。提交不可逆，所以宁可退回保存。
-
-### 提交是两步，不是一步
-
-```js
-btnBlueSubmit()   // 第一步：只弹确认框「您还有未完成的单选题，确认提交吗？」
-#popok            // 第二步：点弹窗里的「提交」，才真提交
-```
-
-只点第一步，页面看着像提交了，实际任务点一点没变。
-
-### 谁给答案？任何 AI 都能接
-
-脚本本身**不调用任何模型**，只做三件事：截图 → 写 `HELP.json` → 读 `ANSWERS.json`。
-
-所以**豆包、WorkBuddy、DeepSeek Harness、Claude Code、Codex、自建 API、纯人工，都能接**——只要它
-能读 PNG、能写 JSON。协议与五种接入方式见 [docs/QUIZ-AI-HELP.md](docs/QUIZ-AI-HELP.md)，
-现成模板见 [workbuddy/quiz-helper.template.mjs](workbuddy/quiz-helper.template.mjs)。
-
-**豆包/火山方舟**直接可用：它们的 `/chat/completions` 支持 `image_url` + base64，把模板里的
-`recognizeAnswers()` 填上就行。
-
-## 验证码怎么办（三级降级）
-
-刷课途中会撞上**图形数字验证码**。硬撞风控只会升级惩罚（图形码 → 滑块 → 封号），所以本项目采用三级降级：
-
-| 级别 | 谁来解 | 说明 |
-|---|---|---|
-| **1** | 本地 OCR | Windows 自带 `Windows.Media.Ocr`，离线、免费、无需下载语言包 |
-| **2** | **你的 AI 客户端** | 通过**文件协议**交接，任何客户端都能接 |
-| **3** | 你 | 手动输入，脚本检测到就继续 |
-
-### 第 2 级为什么用文件协议
-
-本项目要开源分发，**用户的 AI 客户端各不相同**（DeepSeek Harness / WorkBuddy / Claude Code / Codex / 自建 API / 什么都没有）。
-
-所以约定一个与客户端无关的接口 —— 一个目录、两个 JSON：
-
-```
-.captcha-tmp/
-├── latest.png       验证码截图（脚本写）
-├── HELP.json        求助请求（脚本写，AI 读）
-└── SOLUTION.json    AI 的答案（AI 写，脚本读）
-```
-
-**任何能读文件 + 写文件的 AI 都能接入**，不需要 MCP、不需要起服务、不需要联网。
-
-- 完整协议与五种客户端接法：[docs/CAPTCHA-AI-HELP.md](docs/CAPTCHA-AI-HELP.md)
-- 现成模板：[workbuddy/captcha-helper.template.mjs](workbuddy/captcha-helper.template.mjs)（改一个 `recognizeImage` 函数即可）
-
-### 相关参数
-
-```bash
---captcha-tries 2    # 本地 OCR 最多试几次，默认 2（严格限次，防触发风控）
---ai-wait 120        # 等 AI 答复的秒数
---no-ocr             # 跳过 OCR，直接把求助交出去
---no-ai              # 跳过 AI 介入，OCR 失败直接转人工
-```
-
-## 操作浏览器的四件套
-
-这个项目在开发过程中沉淀出一套桌面自动化组合：**pwsh + Windows-MCP + dsh-streamvision + CDP**。
-
-它们**互补，不是替代关系**：
-
-| 工具 | 擅长 |
-|---|---|
-| pwsh | 文件/进程、`SendKeys`、剪贴板 |
-| Windows-MCP | 鼠标点击、UIA 元素树、原生对话框 |
-| dsh-streamvision | 屏幕序列帧、视觉理解 |
-| **CDP** | 执行 JS、读完整 DOM、读 httpOnly cookie、持久注入 |
-
-什么时候用哪个、CDP 的两个坑（Chrome 136+ 要非默认 profile、新 profile 无登录态），见 [docs/TOOLCHAIN.md](docs/TOOLCHAIN.md)。
+---
 
 ## 开发
 
 ```bash
-node --test test/enc.test.mjs test/cookies.test.mjs test/classify.test.mjs   # 20 个单测
-node scripts/scan-secrets.mjs                                               # 凭据扫描
-node src/cli.mjs check                                                      # 跑门
+node scripts/selftest.mjs     # 全量自检（改完代码先跑这个）
+node --test test/*.test.mjs   # 只跑单测
+node scripts/scan-secrets.mjs # 只跑密钥扫描
 ```
 
-技术细节：
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — 模块划分与数据流
-- [docs/API.md](docs/API.md) — 用到的接口与参数
-- [docs/RECON.md](docs/RECON.md) — 逆向过程笔记（客户端结构、enc 双轨、踩过的坑）
-- [docs/PROGRESS-FINDINGS.md](docs/PROGRESS-FINDINGS.md) — 进度记账的实测结论
+改代码的规矩见 [`AGENTS.md`](AGENTS.md)。最重要的是两条：
 
-## 许可
+1. **夹具必须是真实响应裁剪**，不能手写理想 HTML——那样只能证明"正则匹配我编的结构"
+2. **中文文本只用 edit/write 改**，不要用 PowerShell 回写（会双层破坏）
 
-MIT。使用后果自负，详见 [DISCLAIMER.md](DISCLAIMER.md)。
+---
+
+## 许可证
+
+MIT。见 [`LICENSE`](LICENSE)。使用前请读 [`DISCLAIMER.md`](DISCLAIMER.md)。
