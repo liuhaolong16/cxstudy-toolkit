@@ -10,7 +10,15 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { SIGNAL_STRENGTH, buildFocusEvidence, renderFocusEvidence, buildFocusPrompt } from '../src/study/exam-focus.mjs';
+import {
+  SIGNAL_STRENGTH,
+  MATERIAL_KINDS,
+  classifyMaterial,
+  groupMaterialsByValue,
+  buildFocusEvidence,
+  renderFocusEvidence,
+  buildFocusPrompt,
+} from '../src/study/exam-focus.mjs';
 
 /* ------------------------------------------------------------------ */
 /* 信号强度分级                                                        */
@@ -82,7 +90,116 @@ test('buildFocusEvidence：认不出章号的条目不进证据（不瞎归组�
 });
 
 /* ------------------------------------------------------------------ */
-/* 渲染                                                                */
+/* 资料价值分级（教案 / 大纲 / 习题）                                   */
+/* ------------------------------------------------------------------ */
+
+test('classifyMaterial：认出教案（实测有机化学就有一份藏在课件里）', () => {
+  const k = classifyMaterial('2  有机化学课程教案-纯版-下.pdf');
+  assert.equal(k.id, 'lessonPlan');
+  assert.equal(k.weight, MATERIAL_KINDS.lessonPlan.weight);
+});
+
+test('classifyMaterial：认出大纲与考试范围', () => {
+  assert.equal(classifyMaterial('有机化学教学大纲.pdf').id, 'syllabus');
+  assert.equal(classifyMaterial('期末考试范围说明.docx').id, 'syllabus');
+});
+
+test('classifyMaterial：认出习题/练习/复习题', () => {
+  assert.equal(classifyMaterial('有机化学（下）练习题.pdf').id, 'exercise');
+  assert.equal(classifyMaterial('第3章 课后题.pdf').id, 'exercise');
+  assert.equal(classifyMaterial('期末复习题.docx').id, 'exercise');
+});
+
+test('classifyMaterial：普通课件兜底，不误判', () => {
+  assert.equal(classifyMaterial('9.2羰基的亲核加成反应.pptx').id, 'material');
+  assert.equal(classifyMaterial('chapter 17 杂环化合物.pdf').id, 'material');
+});
+
+test('classifyMaterial：权重顺序 大纲 > 教案 > 习题 > 课件', () => {
+  const w = MATERIAL_KINDS;
+  assert.ok(w.syllabus.weight > w.lessonPlan.weight);
+  assert.ok(w.lessonPlan.weight > w.exercise.weight);
+  assert.ok(w.exercise.weight > w.material.weight);
+});
+
+test('groupMaterialsByValue：高价值的被挑出来，普通课件归 rest', () => {
+  const r = groupMaterialsByValue([
+    { name: '有机化学课程教案.pdf' },
+    { name: '练习题.pdf' },
+    { name: '9.2 羰基加成.pptx' },
+  ]);
+  assert.equal(r.high.length, 2);
+  assert.equal(r.rest.length, 1);
+  assert.equal(r.counts.lessonPlan, 1);
+  assert.equal(r.counts.exercise, 1);
+  assert.equal(r.counts.material, 1);
+});
+
+test('groupMaterialsByValue：高价值的按权重降序排', () => {
+  const r = groupMaterialsByValue([
+    { name: '练习题.pdf' }, // weight 4
+    { name: '教学大纲.pdf' }, // weight 6
+    { name: '课程教案.pdf' }, // weight 5
+  ]);
+  assert.deepEqual(r.high.map((h) => h.kind.id), ['syllabus', 'lessonPlan', 'exercise']);
+});
+
+test('renderFocusEvidence：把教案/习题列在「先把这几份看了」里', () => {
+  const ev = buildFocusEvidence([{ name: '第一章 A.pdf' }], []);
+  const md = renderFocusEvidence({
+    courseName: '有机化学',
+    evidence: ev,
+    materialsCount: 3,
+    worksCount: 0,
+    materials: [{ name: '有机化学课程教案-纯版-下.pdf' }, { name: '练习题.pdf' }, { name: '9.2 加成.pptx' }],
+  });
+  assert.ok(md.includes('先把这几份看了'), '应有高价值资料引导');
+  assert.ok(md.includes('有机化学课程教案-纯版-下.pdf'), '教案要出现');
+  assert.ok(md.includes('练习题.pdf'), '习题要出现');
+  assert.ok(md.includes('考点密度最高'), '要说明教案为什么优先');
+});
+
+test('renderFocusEvidence：没有高价值资料时不出现这一节（不硬凑）', () => {
+  const ev = buildFocusEvidence([{ name: '第一章 A.pdf' }], []);
+  const md = renderFocusEvidence({
+    courseName: 'X',
+    evidence: ev,
+    materialsCount: 1,
+    worksCount: 0,
+    materials: [{ name: '1.1 绪论.pdf' }],
+  });
+  assert.ok(!md.includes('先把这几份看了'), '普通课件不该被说成"先看这几份"');
+});
+
+/* ------------------------------------------------------------------ */
+/* 零作业课的分支                                                      */
+/* ------------------------------------------------------------------ */
+
+test('renderFocusEvidence：0 作业时明确说"作业信号不存在"，不塞一张全弱的表', () => {
+  const ev = buildFocusEvidence([{ name: '第一章 A.pdf' }, { name: '第二章 B.pdf' }], []);
+  const md = renderFocusEvidence({ courseName: 'X', evidence: ev, materialsCount: 2, worksCount: 0 });
+  assert.ok(md.includes('没有布置任何作业'), '要说清本课没有作业');
+  assert.ok(md.includes('不存在'), '要声明最强信号在本课不存在');
+  assert.ok(md.includes('不要把它当成优先级依据'), '要明确这张表不能当依据');
+  assert.ok(md.includes('教案'), '要给出替代路径');
+  assert.ok(md.includes('习题'), '要给出替代路径');
+});
+
+test('renderFocusEvidence：有作业时不出现"没有布置任何作业"那句', () => {
+  const ev = buildFocusEvidence([{ name: '第一章 A.pdf' }], [{ title: '第一章 作业' }]);
+  const md = renderFocusEvidence({ courseName: 'X', evidence: ev, materialsCount: 1, worksCount: 1 });
+  assert.ok(!md.includes('没有布置任何作业'));
+});
+
+test('renderFocusEvidence：提醒份数不代表重要性（资料区有多版本目录）', () => {
+  const ev = buildFocusEvidence([{ name: '第一章 A.pdf' }], [{ title: '第一章 作业' }]);
+  const md = renderFocusEvidence({ courseName: 'X', evidence: ev, materialsCount: 10, worksCount: 1 });
+  assert.ok(md.includes('份数不代表重要性'), '实测有 教案PDF/课件PDF/课件PDF版 三个并列目录，会重复计数');
+  assert.ok(md.includes('课件PDF版') || md.includes('多个版本'), '要说明是版本重复');
+});
+
+/* ------------------------------------------------------------------ */
+/* 渲染                                                              */
 /* ------------------------------------------------------------------ */
 
 test('renderFocusEvidence：表格里有章、信号、作业、课件四列', () => {

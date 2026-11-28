@@ -53,6 +53,88 @@ export const SIGNAL_STRENGTH = {
 };
 
 /**
+ * 资料的价值分级。
+ *
+ * **为什么需要这个**：37 份课件里混着一份「有机化学课程教案-纯版-下.pdf」——
+ * 教案的信噪比远高于普通课件（它是老师讲课的底稿，考点密度最高）。
+ * 原版把它和 `2.1 烷烃的结构.pdf` 平铺在一起，等于把最有用的东西藏起来了。
+ *
+ * 真实数据里能识别出三类高价值文件：
+ *   - **大纲**：「大纲」「考试范围」「考核」——最接近考纲的东西
+ *   - **教案**：「教案」「讲义」「教学设计」——老师讲课的底稿
+ *   - **习题**：「习题」「练习」「课后题」「复习题」——直接对标题型
+ *
+ * 判据是**文件名关键词**。这是弱判据（老师可能命名不规范），所以只在档案里
+ * 「提示优先看」，不下"这就是重点"的结论。
+ */
+export const MATERIAL_KINDS = {
+  syllabus: {
+    id: 'syllabus',
+    label: '大纲 / 考核要求',
+    weight: 6,
+    keywords: ['大纲', '考试范围', '考核', '教学要求', '课程要求'],
+    why: '最接近考纲的东西 —— 如果老师说"考到第 X 章"，通常就写在这里',
+  },
+  lessonPlan: {
+    id: 'lessonPlan',
+    label: '教案 / 讲义',
+    weight: 5,
+    keywords: ['教案', '讲义', '教学设计', '讲稿'],
+    why: '老师讲课的底稿 —— 考点密度最高，比课件 PPT 细得多',
+  },
+  exercise: {
+    id: 'exercise',
+    label: '习题 / 练习',
+    weight: 4,
+    keywords: ['习题', '练习', '课后题', '复习题', '测验', '试题'],
+    why: '直接对标题型 —— 会做这些题基本等于会考试',
+  },
+  material: {
+    id: 'material',
+    label: '课件',
+    weight: 2,
+    keywords: [], // 兜底
+    why: '常规课件 —— 覆盖知识点，但不区分重点',
+  },
+};
+
+/**
+ * 判断一份资料属于哪一类。纯函数。
+ *
+ * @param {string} name 文件名（含或不含扩展名都行）
+ * @returns {object} MATERIAL_KINDS 里的一项
+ */
+export function classifyMaterial(name) {
+  const s = String(name || '');
+  for (const kind of [MATERIAL_KINDS.syllabus, MATERIAL_KINDS.lessonPlan, MATERIAL_KINDS.exercise]) {
+    if (kind.keywords.some((k) => s.includes(k))) return kind;
+  }
+  return MATERIAL_KINDS.material;
+}
+
+/**
+ * 把资料按价值分级，挑出高价值的那些。
+ *
+ * @param {Array<{name:string}>} materials
+ */
+export function groupMaterialsByValue(materials) {
+  const high = [];
+  const rest = [];
+  const counts = { syllabus: 0, lessonPlan: 0, exercise: 0, material: 0 };
+
+  for (const m of materials) {
+    const kind = classifyMaterial(m.name);
+    counts[kind.id] = (counts[kind.id] || 0) + 1;
+    const item = { name: m.name, kind };
+    if (kind.id === 'material') rest.push(item);
+    else high.push(item);
+  }
+
+  high.sort((a, b) => b.kind.weight - a.kind.weight);
+  return { high, rest, counts };
+}
+
+/**
  * 从课件 + 作业里抽「每章的证据」。
  *
  * @param {Array} materials 资料区条目（需有 name）
@@ -120,6 +202,20 @@ export function renderFocusEvidence(input) {
 
   lines.push('### 考点推断素材（给 AI 用的证据，不是结论）');
   lines.push('');
+
+  // 高价值资料先单独拎出来 —— 教案/大纲/习题的信噪比远高于普通课件
+  if (Array.isArray(input.materials) && input.materials.length) {
+    const { high } = groupMaterialsByValue(input.materials);
+    if (high.length) {
+      lines.push('**先把这几份看了**（按价值排序，不是普通课件）：');
+      lines.push('');
+      for (const h of high) {
+        lines.push(`- 【${h.kind.label}】${h.name}`);
+        lines.push(`  - ${h.kind.why}`);
+      }
+      lines.push('');
+    }
+  }
   if (!chapters.length) {
     lines.push('课件与作业里都没识别出章节号，这一节没有素材。');
     lines.push('');
@@ -128,6 +224,35 @@ export function renderFocusEvidence(input) {
 
   lines.push(`共识别出 ${summary.totalChapters} 个有内容的章节：${summary.withWork} 章有作业，${summary.withBoth} 章两者都有。`);
   lines.push('');
+
+  // 关于「份数」的诚实说明 —— 独立测试实测出资料区常有三个并列目录
+  // （教案PDF / 课件PDF / 课件PDF版），拍平后同一内容会被算成多份。
+  // 所以份数只能当"有没有覆盖"，不能当"这章重不重要"。
+  if (materialsCount > 1) {
+    lines.push('> **份数不代表重要性**。实测资料区常有并列目录（如「教案PDF / 课件PDF / 课件PDF版」），');
+    lines.push('> 同一套内容会以多个版本出现，拍平后份数会重复计。**请不要用"份数多"推断"这章重要"。**');
+    lines.push('');
+  }
+
+  // 关键分支：一门课 0 作业时，整张表全是"弱"，等于没有区分度。
+  // 这时候不该硬塞一张全弱的表 —— 要说清"这个信号在本课不存在"，并给替代路径。
+  if (summary.withWork === 0) {
+    // 注意：不能引用「先把这几份看了」那一节 —— 当一门课没有教案/大纲/习题时那节不存在，
+    // 引用它就是在指向一个不存在的标题。这里改用条件措辞。
+    const hasHigh = Array.isArray(input.materials) && groupMaterialsByValue(input.materials).high.length > 0;
+    lines.push('> **⚠️ 这门课在学习通里没有布置任何作业**，所以「作业章节」这个最强信号在本课**不存在**。');
+    lines.push('> 下面这张表只能反映"哪些章有课件"，**区分不出重点** —— 请不要把它当成优先级依据。');
+    lines.push('>');
+    lines.push('> 这门课建议改用这三条替代路径：');
+    if (hasHigh) {
+      lines.push('> 1. **先精读教案/讲义**（上面「先把这几份看了」列出的那几份）—— 它是老师讲课的底稿，考点密度最高');
+    } else {
+      lines.push('> 1. **去资料区找教案/讲义**（本课程的资料里没识别出这类文件）—— 它是老师讲课的底稿，考点密度最高');
+    }
+    lines.push('> 2. **把习题/练习题全做一遍** —— 有答案的话对答案，这是最接近真题的东西');
+    lines.push('> 3. **联网查本校本课程的考纲**，或问老师要考试范围');
+    lines.push('');
+  }
   lines.push('| 章 | 信号 | 作业（老师选过的） | 课件 |');
   lines.push('|---|---|---|---|');
   for (const c of chapters) {
@@ -157,8 +282,16 @@ export function renderFocusEvidence(input) {
     lines.push('');
     lines.push(`**只有课件的章**：第 ${matOnly.join('、')} 章。它们可能是背景知识，也可能是下次作业的预告 —— 让 AI 结合考纲判断。`);
   }
+  // 「有作业但没课件」是真正值得行动的信号：作业要用的资料你手上没有
+  const workNoMat = chapters.filter((c) => c.hasWork && !c.hasMat).map((c) => c.chapter);
+  if (workNoMat.length) {
+    lines.push('');
+    lines.push(`> **有作业但没找到对应课件**：第 ${workNoMat.join('、')} 章。`);
+    lines.push('> 可能是资料在别的目录、或者老师没传。**值得去资料区再翻一遍** —— 这几章的作业你可能做着没依据。');
+  }
   lines.push('');
   lines.push('> 这一节只提供**证据**（哪章有作业、哪章有课件、各自多少），**不替你下"这就是重点"的结论**。');
+  lines.push('> 它**不是考纲** —— 老师布置过作业不等于考的就是这些，有没有考纲要看老师通知或课程大纲。');
   lines.push('> 交给带联网能力的 AI 时，让它结合本校本课程的考纲/历年题再做判断。');
   lines.push('');
 

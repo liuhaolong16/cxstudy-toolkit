@@ -788,8 +788,12 @@ async function cmdExam() {
   log('');
   log(`  课件 ${materials.length} 份`);
   log(`  考试 ${exams.length} 场`);
-  log(`  作业 ${works.length} 条（全是这门课的）`);
-  log(`  通知 ${notices.length} 条（已按课程过滤）`);
+  // 这两行原先写「作业 N 条（全是这门课的）」「通知 N 条（已按课程过滤）」，
+  // 在 N=0 时措辞会误导 —— 独立测试实测：CLI 说「通知 20 条（已按课程过滤）」，
+  // 但档案里写「没有匹配到这门课的通知」，用户第一反应是 bug。
+  // 实际是「20 条是过滤前的总数，过滤后 0 条」。措辞要说清哪个数是什么。
+  log(`  作业 ${works.length} 条${works.length === 0 ? '（这门课在学习通里没有布置作业）' : '（已按课程筛选）'}`);
+  log(`  通知 ${notices.length} 条${notices.length === 0 ? '（已按课程筛选后为 0 —— 不是接口失败）' : '（已按课程筛选）'}`);
   if (degraded.length) log(`  ⚠ 降级：${degraded.join('、')}`);
   log('');
 

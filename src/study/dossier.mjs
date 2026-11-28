@@ -89,8 +89,10 @@ export function buildDossier(input) {
   lines.push('');
   lines.push(`> 生成时间：${fmtDate(now, true)}　课程 ID：${course.courseId}　班级 ID：${course.clazzId}`);
   lines.push('');
-  lines.push('> **这份档案只做聚合，不替你判断重点。** 资料、考试、作业、通知都来自学习通，');
-  lines.push('> 但"哪些是重点"取决于老师考纲和你自己的掌握程度。末尾给了一段可以粘给 AI 的提示词。');
+  lines.push('> **这份档案给你的 AI 提供分级证据，但不替它下"这是重点"的结论。**');
+  lines.push('> 资料、考试、作业、通知都来自学习通真实数据；"哪些是重点"取决于老师考纲和你的掌握程度。');
+  lines.push('> 第三节「考点推断素材」把证据按强度排好（教案/大纲/习题优先，有作业的章强于只有课件的），');
+  lines.push('> 末尾给了一段可以粘给 AI 的提示词 —— 让它结合证据 + 联网查考纲来推断。');
   lines.push('');
 
   /* ---------------- 1. 资料 ---------------- */
@@ -150,35 +152,13 @@ export function buildDossier(input) {
   }
   lines.push('');
 
-  /* ---------------- 3.5 章节覆盖度 ---------------- */
-  const cov = chapterCoverage(materials, works);
-  if (cov.length) {
-    lines.push('### 章节覆盖度');
-    lines.push('');
-    lines.push('| 章 | 有课件 | 有作业 | 作业标题 |');
-    lines.push('|---|---|---|---|');
-    for (const c of cov) {
-      lines.push(`| 第 ${c.chapter} 章 | ${c.hasMaterial ? '✓' : '—'} | ${c.hasWork ? '✓' : '—'} | ${c.workTitles.join('；') || '—'} |`);
-    }
-    lines.push('');
-    const noWork = cov.filter((c) => c.hasMaterial && !c.hasWork).map((c) => c.chapter);
-    const noMat = cov.filter((c) => !c.hasMaterial && c.hasWork).map((c) => c.chapter);
-    if (noWork.length) {
-      lines.push(`> **有课件但没作业的章**：${noWork.map((c) => `第 ${c} 章`).join('、')}`);
-      lines.push('> 通常老师没强调这些章，可以放后看——但**如果老师课上特意讲过，还是要看**，这只是个提示。');
-      lines.push('');
-    }
-    if (noMat.length) {
-      lines.push(`> **有作业但没找到对应课件**：${noMat.map((c) => `第 ${c} 章`).join('、')}`);
-      lines.push('> 可能是资料在别的目录、或者老师没传。值得去资料区再翻一遍。');
-      lines.push('');
-    }
-    lines.push('> 这张表只说「**老师布置过作业的章**」，不是考纲。有没有考纲要看上面第四条通知。');
-    lines.push('');
-  }
-
-  /* ---------------- 3.6 考点推断素材（证据，不是结论） ---------------- */
-  // 立场：作业章节是强信号，课件覆盖是中信号；把证据摊开交给带联网能力的 AI，
+  /* ---------------- 3.5 考点推断素材（证据，不是结论） ---------------- */
+  // 这里原来还有一张「章节覆盖度」表，和本节内容几乎完全重复（都是 章/有课件/有作业/作业标题）。
+  // 独立测试指出它"占了一屏、零增量价值"，且它那句「有课件但没作业的章可以放后看」
+  // 在一门课 0 作业时会落到全部 12 章上 —— 自相矛盾。已删除，只保留本节。
+  // chapterCoverage() 函数本身保留（有单测，也可能被别的调用方用）。
+  //
+  // 立场：作业章节是强信号，教案/大纲/习题是高价值资料；把证据摊开交给带联网能力的 AI，
   // 让它结合考纲推断，而不是我们自己拍一个"重点"出来。
   const focusEvidence = buildFocusEvidence(materials, works);
   if (focusEvidence.chapters.length) {
@@ -187,7 +167,14 @@ export function buildDossier(input) {
       evidence: focusEvidence,
       materialsCount: materials.length,
       worksCount: works.length,
+      materials, // 用于识别教案/大纲/习题这类高价值资料
     }));
+  } else {
+    lines.push('### 考点推断素材');
+    lines.push('');
+    lines.push('课件与作业里都没识别出章节号（文件名可能不带"第X章"/"chaptN"/"9.4"这类前缀）。');
+    lines.push('这不影响你直接看课件清单，但 AI 没法按章排优先级。');
+    lines.push('');
   }
 
   /* ---------------- 4. 通知 ---------------- */
@@ -232,7 +219,22 @@ export function buildDossier(input) {
   lines.push('## 六、怎么用这份档案');
   lines.push('');
   lines.push('1. **先看考试**：如果上面有考试和倒计时，先按剩余天数决定投入。');
-  lines.push('2. **按章节过课件**：上面已按章号排好序，从第 1 章往下推，别跳。');
+  // 章号不一定是连续的（这门课就从第 0 章跳到第 2 章），所以说"从第 1 章"是错的。
+  // 用实际最小章号，并提醒可能有跳号。
+  const chapterNos = materials.map((m) => guessChapterNo(m.name)).filter((n) => n != null).sort((a, b) => a - b);
+  if (chapterNos.length) {
+    const first = chapterNos[0];
+    const gaps = [];
+    for (let i = 1; i < chapterNos.length; i++) {
+      if (chapterNos[i] - chapterNos[i - 1] > 1) gaps.push(`${chapterNos[i - 1]}→${chapterNos[i]}`);
+    }
+    lines.push(`2. **按章节过课件**：上面已按章号排好序，从**第 ${first} 章**往下推。`);
+    if (gaps.length) {
+      lines.push(`   注意章号有跳号（${gaps.join('、')}）——可能是老师只传了部分章，或旧版教材残留，别以为漏看了。`);
+    }
+  } else {
+    lines.push('2. **按章节过课件**：上面的清单已按章号排序（认不出章号的不在这一节）。');
+  }
   lines.push('3. **作业当小测**：作业入口里挑几道重做，比看课件更能暴露漏洞。');
   lines.push('4. **通知里找考纲**：老师如果发过"考试范围/重点章节"，会在上面的通知里。');
   lines.push('');
