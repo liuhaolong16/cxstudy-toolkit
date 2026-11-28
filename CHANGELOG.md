@@ -72,7 +72,7 @@ cxa audit --fix      # 自动修能唯一确定的
 - `src/audit/rules.mjs`（新）：`extractNumbers` / `auditNumbers` / `auditManifest` /
   `auditVersions` / `auditStaleClaims` / `auditAll` / `renderAuditReport` + 三张注册表
   （`NUMBER_RULES` / `STALE_CLAIMS`）。
-- `test/audit.test.mjs`（新）：32 条，重点全在「每条判据都会红」和「skip 不算 pass」。
+- `test/audit.test.mjs`（新）：33 条，重点全在「每条判据都会红」和「skip 不算 pass」。
 - `USAGE` 里那句过时的「平台不认账」也改了 —— **审计现在会扫 USAGE**（它也是对外说的话）。
 
 ---
