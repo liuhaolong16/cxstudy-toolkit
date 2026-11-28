@@ -13,7 +13,7 @@ import path from 'node:path';
 import { loadCookies, saveCookies, readCookieFile, homeDir, maskCookieNames } from './auth/cookies.mjs';
 import { loginInteractive } from './auth/login.mjs';
 import { listCourses, matchCourse } from './api/courses.mjs';
-import { listChapters, cardsUrl, readJobs } from './api/chapters.mjs';
+import { listChapters } from './api/chapters.mjs';
 import { request, ENDPOINTS } from './api/client.mjs';
 import { listExams, pendingExams } from './api/exams.mjs';
 import { listMaterials, findMaterials, downloadMaterial } from './api/materials.mjs';
@@ -1287,8 +1287,10 @@ async function cmdPlay() {
       const tally = { video: [], document: [], read: [], quiz: [], other: [] };
       for (let i = 0; i < targets.length; i++) {
         const item = targets[i];
-        await session.goto(cardsUrl({ courseId, classId, personId, knowledgeId: Number(item.knowledgeId) }), 5000);
-        const r = await readJobs(session, { includePassed: false });
+        // 用 fetchJobs（纯 HTTP + 按 num 枚举全部任务点），不是 readJobs。
+        // 实测教训：readJobs 只读 num=0，一个知识点只看得见 1 个任务点；
+        // 而平台计数说这门课有 7 个 —— 差额就在 num>0 的那些里。
+        const r = await fetchJobs({ courseId, clazzId: classId, cpi: personId, knowledgeId: Number(item.knowledgeId), includePassed: false });
         if (!r.jobs.length) continue;
         for (const j of r.jobs) {
           const bucket = tally[j.type] ? j.type : 'other';
@@ -1311,15 +1313,11 @@ async function cmdPlay() {
 
     for (let i = 0; i < targets.length; i++) {
       const item = targets[i];
-      if (doneSet.has(String(item.knowledgeId))) {
-        log(`[${i + 1}/${targets.length}] 已完成，跳过  ${item.title}`);
-        continue;
-      }
       log(`[${i + 1}/${targets.length}] ${item.title}`);
 
-      // 一次进页面，同时拿到「任务点清单」和「视频信息」
-      await session.goto(cardsUrl({ courseId, classId, personId, knowledgeId: Number(item.knowledgeId) }), 6000);
-      const scanned = await readJobs(session, { includePassed: false });
+      // 任务点清单走 fetchJobs（纯 HTTP，会按 num 枚举全部任务点）；
+      // 视频播放仍需要浏览器，届时 playKnowledge 自己会 goto。
+      const scanned = await fetchJobs({ courseId, clazzId: classId, cpi: personId, knowledgeId: Number(item.knowledgeId), includePassed: false });
 
       if (scanned.notOpen) {
         skippedNow += 1;
@@ -1335,8 +1333,19 @@ async function cmdPlay() {
         continue;
       }
 
+      // 逐个任务点判断：doneSet 现在存的是 jobid（任务点级），不是 knowledgeId
+      const todoJobs = scanned.jobs.filter((j) => !doneSet.has(String(j.jobid)));
+      const alreadyCount = scanned.jobs.length - todoJobs.length;
+      if (alreadyCount > 0) {
+        log(`  （${alreadyCount} 个任务点已做过，剩 ${todoJobs.length} 个）`);
+      }
+      if (!todoJobs.length) {
+        log(`  ✓ 此知识点的任务点都已完成`);
+        continue;
+      }
+
       let touchedThisKid = false;
-      for (const job of scanned.jobs) {
+      for (const job of todoJobs) {
         const kind = String(job.type || '').toLowerCase();
 
         if (kind === 'document') {
@@ -1393,26 +1402,27 @@ async function cmdPlay() {
         log(`  跳过（${kind || 'unknown'}）`);
       }
 
-      // **只有计数涨了才算真完成**。
-      // 平台完成接口是幂等的：已做过的再调仍返回 200，但计数不涨。
-      // 如果只按「调用成功」就写入 doneSet，下次会误跳过 ——
-      // 实测踩过：3 个文档任务点全返回 ok，实际只涨 1 个。
+      // **以平台计数变化为准**（平台完成接口是幂等的，调用成功不等于真完成）。
+      // 同时也按 jobid 记账：计数涨了就说明这一批里有生效的。
       if (touchedThisKid) {
         let grew = false;
+        let nowDone = null;
         try {
           const cur = await listChapters(session, { courseId, classId, personId });
           const prevDone = state.lastDone ?? null;
-          const nowDone = cur.progress?.done ?? null;
+          nowDone = cur.progress?.done ?? null;
           if (nowDone != null && prevDone != null) grew = nowDone > prevDone;
-          state.lastDone = nowDone;
-          log(`  计数: ${prevDone ?? '?'} → ${nowDone ?? '?'}${grew ? '（涨了，记为完成）' : '（没涨，下次还会重试）'}`);
+          log(`  计数: ${prevDone ?? '?'} → ${nowDone ?? '?'}${grew ? '（涨了）' : '（没涨，下次重试）'}`);
         } catch (e) {
           log(`  计数回读失败（不记完成）：${e.message}`);
         }
         if (grew) {
-          doneSet.add(String(item.knowledgeId));
-          state.done = [...doneSet];
+          for (const j of todoJobs) {
+            if (j.jobid) doneSet.add(String(j.jobid));
+          }
         }
+        state.lastDone = nowDone;
+        state.done = [...doneSet];
         saveState(courseId, state);
       }
     }
