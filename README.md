@@ -25,7 +25,7 @@
 | 加自己学校的源 | 给模板 + 提示词，让**你的 AI** 去拆解并复刻 | `cxa info sources` |
 | 看云盘 | 根目录列表（需浏览器，约 8 秒） | `cxa pan` |
 
-**20 个命令，10 个 MCP 工具，354 条单测，16 项自检。**
+**20 个命令，10 个 MCP 工具，361 条单测，16 项自检。**
 
 > **拉不下 GitHub？**（没有加速工具 / 公司网络 / 只想要个 zip）
 > 看 [`docs/INSTALL-WITHOUT-GH.md`](docs/INSTALL-WITHOUT-GH.md) —— 三条路：离线包 / 镜像站 / jsDelivr 单文件。
