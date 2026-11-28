@@ -5,6 +5,115 @@
 
 ---
 
+## [0.8.0] - 2026-11-28
+
+**补上「怎么拿到」——这是之前完全漏掉的一环。**
+
+### 问题
+
+用户问了一句很关键的话：**「万一我们的用户没有 Watt 呢？」**
+
+（Watt = Watt Toolkit / Steam++，国内常用的 GitHub 加速工具。）
+
+**这一问戳破了一个盲区**：项目一直是「零依赖、装完就能跑」，
+但**零依赖只解决「跑」，不解决「拿到」**。
+
+主仓库在 GitHub。国内没有加速工具时，`git clone` 可能超时、拉到一半断、
+甚至整个域名不通。**对这类用户，这个项目等于不存在。**
+
+而且反过来也堵：**别人想帮我们建镜像，拉不下代码，也建不了。**
+
+### 三条路（按省事程度排）
+
+| 路 | 需要什么 | 能不能拿到完整项目 |
+|---|---|---|
+| **① 离线包** | 有人给你一个 zip | ✅ 完整，解压即用 |
+| **② 镜像站 clone** | 自己建一次镜像 | ✅ 完整，还能 `git pull` |
+| **③ jsDelivr** | 能打开网页 | ⚠️ **只能下单文件，不能 clone** |
+
+**③ 的硬限制写在文档最前面** —— 它是 CDN 不是 git 服务。
+很多人会误以为能「从 jsDelivr 下整个项目」，得一句话说死。
+
+### 新增 `scripts/make-offline-zip.mjs`
+
+```bash
+node scripts/make-offline-zip.mjs
+# → dist/chaoxing-assistant-<版本>-offline.zip（365 KB / 115 文件）
+```
+
+**安全设计（这是重点）**：
+- 打包**前**先扫一遍，有凭据文件就**拒绝打包**
+- 打完**再**扫一遍 zip 内容，混进来就删产物
+- 包里自带 `README-FIRST.txt`（带 BOM，Windows 记事本不乱码）
+
+**实测**：解压到别处 → `node src/cli.mjs --version` → `0.8.0` → `cxa audit --json` → `"ok": true`。
+不装任何东西就能跑。
+
+### 新增 `scripts/mirror-push.mjs`
+
+```bash
+node scripts/mirror-push.mjs --to https://gitee.com/你的用户名/chaoxing-assistant.git
+```
+
+检查可达性 → 识别空仓库 → 推 main + tag → 网络失败自动重试。
+
+**凭据**：脚本**不碰任何 token**，全交给 git 自己的机制。
+理由是：一旦脚本读 token，token 就会出现在命令行历史里。
+
+### 新增 `docs/INSTALL-WITHOUT-GH.md`
+
+三条路 + 每条路的**真实限制** + 6 个常见错误 + 「让别人帮你建镜像」的流程。
+
+### 这一轮当场抓到的四个真 bug
+
+1. **离线包是平铺的，`src/` 目录没了**
+   `Compress-Archive -Path @(文件列表)` 不保留父子关系。
+   解压后根目录全是散文件，**包根本跑不起来**。
+   修法：先复制到临时目录保留结构，再整目录压缩。
+
+2. **打包把自己上一次的产物也包进去了**
+   第一次打出的 zip 落在 `dist/`，第二次收集文件时把 `dist/` 也扫了，
+   然后删掉 zip 再复制 → `ENOENT`。
+   修法：排除 `dist/`、`_stage/` 和所有 `.` 开头的运行时目录。
+
+3. **`README-FIRST.txt` 是 UTF-8 无 BOM**
+   Windows 记事本按 ANSI 打开会乱码。修法：写文件时加 `\uFEFF`。
+
+4. **`new URL(import.meta.url).pathname` 把空格编码成 `%20`**
+   这个仓库路径里就有空格（`deep seek工作区3`），直接 `ENOENT`。
+   修法：用 `fileURLToPath()`。
+
+### 另外修的两处
+
+- **密钥扫描报了我一个误报**：我在注释里拿某个「AES 密钥文件名」当"不要打包的例子"，
+  被扫到了。**扫描器没法读注释**，所以改的是注释措辞，不是扫描器。
+  （这条自身也踩了一次 —— 在第一版 CHANGELOG 里我又把那个文件名写了一遍，
+  扫描立刻又红了。**同一个坑踩两次，说明"举例"这种写法本身就是雷。**）
+- **`AGENT-CONTRACT.md` 有两个「七、」**（编号重复），顺手重排。
+
+### 变更
+
+- `scripts/make-offline-zip.mjs`（新）
+- `scripts/mirror-push.mjs`（新）
+- `docs/INSTALL-WITHOUT-GH.md`（新）
+- `manifest.json` 加 `distribution` 段（**不混进 `capabilities`**：
+  那是给 AI 调用的能力，分发是给「能 clone 的人」用的）
+- README 加了「拉不下 GitHub？」入口
+- AGENT-CONTRACT 第七节加了「根本装不上」一行
+- `.gitignore` 加 `dist/`、`README-FIRST.txt`
+
+### 教训
+
+**「能跑」和「能拿到」是两件事。**
+之前所有努力（零依赖、单文件安装、AI 客户端契约）都在解决前者，
+而真正的用户障碍往往在后者 —— **拿不到代码，后面什么都谈不上。**
+
+**写分发文档时，最容易犯的错是把限制藏起来。**
+jsDelivr 只能下单文件这件事，必须写在最前面，
+否则用户会花半小时试 `git clone https://cdn.jsdelivr.net/...` 然后失败。
+
+---
+
 ## [0.7.0] - 2026-11-28
 
 **系统第一次真的改了自己的代码。**

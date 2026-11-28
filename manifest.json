@@ -1,8 +1,8 @@
 {
   "$comment": "本文件是「机器可读层」：任何 AI 客户端可以不读 Markdown，直接解析这里拿到能力清单。改命令时**必须同步这里**，否则 scripts/selftest.mjs 的一致性门会红。",
   "schemaVersion": "1",
-  "contractVersion": "1.3.0",
-  "pkgVersion": "0.7.0",
+  "contractVersion": "1.4.0",
+  "pkgVersion": "0.8.0",
   "entrypoints": {
     "cli": "cxa",
     "cliAlias": "cxstudy",
@@ -245,5 +245,31 @@
     "renameCommand": "旧名进 deprecated（带 since + removeAt）→ 新旧都能跑 → 门不红",
     "removeCommand": "必须先 deprecated 至少一个 minor 版本，removeAt 写明删除版本",
     "breakingChange": "升 contractVersion；必须在 CHANGELOG.md 顶格写明"
+  },
+  "distribution": {
+    "note": "用户大概率在国内，主仓库在 GitHub。不写清楚怎么拿到 = 没有分发。详见 docs/INSTALL-WITHOUT-GH.md",
+    "paths": [
+      {
+        "id": "offline-zip",
+        "how": "node scripts/make-offline-zip.mjs",
+        "yields": "dist/chaoxing-assistant-<ver>-offline.zip（约 365 KB）",
+        "needs": "有人能 clone 一次",
+        "caveat": "要人传给你；包内自带 README-FIRST.txt"
+      },
+      {
+        "id": "mirror",
+        "how": "node scripts/mirror-push.mjs --to <Gitee/GitCode 地址>",
+        "yields": "一个可直连 clone 的镜像",
+        "needs": "在镜像站建一个空仓库",
+        "caveat": "不自动跟主仓库同步，主仓库更新要再推一次"
+      },
+      {
+        "id": "jsdelivr",
+        "how": "https://cdn.jsdelivr.net/gh/<user>/<repo>@<ref>/<path>",
+        "yields": "单个文件",
+        "needs": "只要能打开网页",
+        "caveat": "只能下单文件，不能 clone，不下 .git 历史"
+      }
+    ]
   }
 }

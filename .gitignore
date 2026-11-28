@@ -23,6 +23,10 @@ logs/
 usage.jsonl
 usage.jsonl.1
 
+# 离线包产物（scripts/make-offline-zip.mjs 生成，体积大，走 Releases 分发）
+dist/
+README-FIRST.txt
+
 # 播放器的两份日志（.err.log 与 .log.err 两种写法都见过，都排除）
 autoplay.log
 autoplay.err.log

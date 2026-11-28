@@ -27,6 +27,11 @@
 
 **18 个命令，10 个 MCP 工具，333 条单测，13 项自检。**
 
+> **拉不下 GitHub？**（没有加速工具 / 公司网络 / 只想要个 zip）
+> 看 [`docs/INSTALL-WITHOUT-GH.md`](docs/INSTALL-WITHOUT-GH.md) —— 三条路：离线包 / 镜像站 / jsDelivr 单文件。
+> 有仓库的人跑 `node scripts/make-offline-zip.mjs` 能打一个 **365 KB** 的离线包传给别人；
+> 跑 `node scripts/mirror-push.mjs --to <镜像地址>` 能推一份到 Gitee/GitCode。
+
 ---
 
 ## 安装
