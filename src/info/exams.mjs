@@ -101,7 +101,7 @@ export const GONGKAO = {
  * **不猜具体 URL**——学校域名五花八门（`ustl.edu.cn` / `lnkj.edu.cn` 都有），
  * 猜错了比不给更糟。所以给的是**搜索结果页**，用户点进去一眼就能认出哪个是官网。
  *
- * @param {string} schoolName 形如"辽宁科技大学"
+ * @param {string} schoolName 形如"某某大学"
  */
 export function schoolEntries(schoolName) {
   if (!schoolName) {

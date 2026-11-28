@@ -23,6 +23,7 @@ import { resolveConfig, saveConfig, describeConfig, CONFIG_PATH } from './notify
 import { fetchNoticesPage, fetchAllNotices, pickWorkItems } from './api/notices.mjs';
 import { buildDossier, filterWorksByCourse, filterExamsByCourse } from './study/dossier.mjs';
 import { ALL_EXAMS, schoolEntries, nextOccurrence } from './info/exams.mjs';
+import { listPanRoot } from './api/pan.mjs';
 import { ChromeSession } from './browser/cdp.mjs';
 import { playKnowledge, inspectKnowledge } from './browser/player.mjs';
 import { runGates, summarize } from './gates/index.mjs';
@@ -74,6 +75,7 @@ const USAGE = `
   cxa notices [--work] [--all] [--json]   通知中心（--work 只看作业/考试入口）
   cxa exam --course <名> [--out <目录>]    备考档案：把课件/考试/作业/通知聚合成一份 Markdown
   cxa info <cet|ncre|kaoyan|gongkao|school>  外部考试与学校入口（只给官方链接与一般规律，不编日期）
+  cxa pan [--json]                        云盘根目录（需浏览器，约 8 秒——接口 enc 是服务端签名）
   cxa materials --course <名>              课程资料区
       --find <关键词>                      递归搜（配合 --download 一起下载）
       --download <目录>
@@ -867,7 +869,7 @@ async function cmdInfo() {
     }
     if (!schoolName) {
       log('✖ 没能从课表里拿到学校名。');
-      log('  可以手动指定：cxa info school --name "辽宁科技大学"');
+      log('  可以手动指定：cxa info school --name "某某大学"');
       const manual = arg('name');
       if (!manual) return 2;
       schoolName = manual;
@@ -913,6 +915,57 @@ async function cmdInfo() {
   log('> 这个模块**不查实时数据**。报名时间由省级考试院发布，每年每省都不同。');
   log('> 点上面的官方入口查你所在省的准确时间。');
   return 0;
+}
+
+/**
+ * 云盘根目录。
+ *
+ * 必须开浏览器：列表接口带服务端下发的 enc 签名，实测严格校验、绑定参数、
+ * 反推不出（试了 43 种 md5 组合）。所以开一次 headless Chrome 抓真实请求再复用。
+ * 代价约 8 秒。
+ */
+async function cmdPan() {
+  log('打开 headless Chrome 抓云盘列表（约 8 秒）…');
+  const r = await listPanRoot({ ChromeSession, loadCookies, request });
+  if (!r.ok) {
+    const hints = {
+      'no-cookie': '本地没有 cookie，先跑 cxa auth login',
+      'no-listreq': '页面没发出列表请求（可能 cookie 失效，或页面结构变了）',
+      'api-refused': '服务端拒绝了（enc 过期或参数不符）',
+      'not-json': '返回不是 JSON',
+      'no-list-field': '返回里没有 list 字段',
+    };
+    log(`✖ ${r.reason}${hints[r.reason] ? '　— ' + hints[r.reason] : ''}`);
+    if (r.captured != null) log(`  抓到 ${r.captured} 条网络请求，但没找到云盘列表那条`);
+    return 1;
+  }
+
+  if (has('json')) {
+    log(JSON.stringify({ ok: true, total: r.total, items: r.items }, null, 2));
+    return 0;
+  }
+
+  log(`云盘根目录：${r.total} 项\n`);
+  const p = (n) => String(n).padStart(2, '0');
+  for (const it of r.items) {
+    const when = it.modifyDate instanceof Date
+      ? `${it.modifyDate.getFullYear()}-${p(it.modifyDate.getMonth() + 1)}-${p(it.modifyDate.getDate())}`
+      : '?';
+    const size = it.isFolder ? '<目录>' : fmtBytes(it.size);
+    log(`  ${it.isFolder ? '📁' : '📄'} ${it.name}`);
+    log(`      ${size}  ${when}  ${it.suffix ? it.suffix + ' ' : ''}`);
+  }
+  log('');
+  log('说明：列表接口的 enc 是服务端签名，每次调用都靠浏览器现取，所以这条命令约 8 秒。');
+  return 0;
+}
+
+function fmtBytes(n) {
+  if (!n) return '0';
+  if (n < 1024) return n + ' B';
+  if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+  if (n < 1024 * 1024 * 1024) return (n / 1024 / 1024).toFixed(1) + ' MB';
+  return (n / 1024 / 1024 / 1024).toFixed(2) + ' GB';
 }
 
 async function cmdMaterials() {
@@ -1197,6 +1250,8 @@ async function main() {
       return cmdExam();
     case 'info':
       return cmdInfo();
+    case 'pan':
+      return cmdPan();
     case 'play':
       return cmdPlay();
     case 'check':

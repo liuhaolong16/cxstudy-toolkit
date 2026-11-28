@@ -103,15 +103,15 @@ test('nextOccurrence：没有 examMonths 的返回 null', () => {
 /* ------------------------------------------------------------------ */
 
 test('schoolEntries：有学校名时给出搜索页而不是猜的域名', () => {
-  const r = schoolEntries('辽宁科技大学');
+  const r = schoolEntries('某某大学');
   assert.equal(r.ok, true);
-  assert.equal(r.school, '辽宁科技大学');
+  assert.equal(r.school, '某某大学');
   assert.ok(r.entries.length >= 5);
 
   for (const e of r.entries) {
     // 必须是搜索引擎的搜索页，不是直接猜的学校域名
     assert.ok(/bing\.com\/search/.test(e.url), `「${e.label}」不该猜 URL：${e.url}`);
-    assert.ok(e.url.includes(encodeURIComponent('辽宁科技大学')), '搜索词里要带学校名');
+    assert.ok(e.url.includes(encodeURIComponent('某某大学')), '搜索词里要带学校名');
   }
 });
 
@@ -132,7 +132,7 @@ test('schoolEntries：没有学校名时返回失败并给提示，不返回空�
 });
 
 test('schoolEntries：学校名会被 URL 编码（中文安全）', () => {
-  const r = schoolEntries('辽宁科技大学');
+  const r = schoolEntries('某某大学');
   for (const e of r.entries) {
     // 不允许出现未编码的中文（会被某些客户端截断）
     assert.ok(!/[\u4e00-\u9fa5]/.test(new URL(e.url).search), `URL 里有未编码中文：${e.url}`);
