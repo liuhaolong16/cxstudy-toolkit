@@ -20,6 +20,8 @@ src/
   auth/       凭据（cookie 落盘、交互登录）
   browser/    CDP 客户端、播放器、Chrome 定位、静音
   gates/      判据门（env / auth / target / progress / readonly）
+  audit/      交付面审计（数字/清单/版本/过时结论 vs 实现）
+  evolve/     自我迭代：usage.mjs（使用观察）+ recipes.mjs（自愈配方）
   notify/     推送通道（5 个，零依赖）+ 配置读写
   study/      备考档案（聚合 + 章节识别）
   paths.mjs   配置目录解析（CXA_HOME，默认 ~/.cxstudy-toolkit）
@@ -84,7 +86,7 @@ dsh/skills/cxstudy/SKILL.md            DSH 技能（操作手册）
 `cxa check` 跑 5 道门（env / auth / target / progress / readonly）。红项必须带 `evidence`，
 不允许只给布尔。`skip` 不等于通过。
 
-全量自检 `node scripts/selftest.mjs` 检查 **12 项**：
+全量自检 `node scripts/selftest.mjs` 检查 **13 项**：
 
 | 阶段 | 查什么 |
 |---|---|
@@ -95,20 +97,48 @@ dsh/skills/cxstudy/SKILL.md            DSH 技能（操作手册）
 | 5 | MCP 工具数 == 10（真跑一次 `tools/list`） |
 | 6 | 关键文档都在且非空 |
 | 7 | 配置目录可解析 |
-| 8 | **交付层一致性门（4 条）** |
+| 8 | **交付层一致性门（5 条）** |
 
-**第 8 项是 0.4.0 加的「迭代接口」，四条机械比对**：
+**第 8 阶段 = 迭代接口，五条机械比对**：
 
 1. `manifest.capabilities[].cli` 的子命令集合 **==** `src/cli.mjs` 的 `case '<name>':` 集合（双向）
 2. `manifest.capabilities[].mcp` 集合 **==** `mcp/server.mjs` 运行时 `tools/list` 返回的工具名（双向）
 3. `AGENT-CONTRACT.md` + `SKILL.md` + `llms.txt` + `README.md` 里提到的每个 `cxa <词>` **都真实存在**
 4. `manifest.pkgVersion` **==** `package.json` 的 `version`
+5. **交付面审计**（调 `src/audit/rules.mjs` 的 `auditAll`）：文档数字 vs 实际、
+   清单一致性、版本一致性、过时结论
 
-**这四条已经逐条证伪过**（`D:\deep seek工作区3\.cxstudy-tmp\prove-gates.mjs`）：
+**这些已经逐条证伪过**（`D:\deep seek工作区3\.cxstudy-tmp\prove-gates.mjs`）：
 往 manifest 写 `coursez`、往 SKILL.md 写 `cxa fakecommand`、版本号漂移，
 各自都能让对应项变红。**加新判据时也要这么做，不然等于没加。**
 
 任一项失败退出码非 0；**空输出算失败**。
+
+## 自愈（`cxa heal`）—— 系统改自己的代码
+
+0.7.0 加的。**这是"自我迭代"的后半截**：观察（`audit` / `usage`）发现问题，
+自愈（`heal`）改代码。
+
+```
+cxa heal                              预演，不碰文件
+cxa heal --apply --yes                真改 → 立刻验证 → 不过自动回滚
+cxa heal --apply --yes --commit       验证通过就 git commit
+cxa heal --with-tests --apply --yes   连文档数字一起修
+```
+
+**配方 = 探测（可判定）+ 修复（确定性字符串操作）+ 验证（能红）**。
+三段缺一不可，**不要做成自由生成代码**。
+
+**加新配方前问三个问题**：
+1. 探测是可判定的吗？（不是"感觉不对"）
+2. 修复是确定性的吗？（不是"让模型想想怎么写"）
+3. 验证能红吗？（改完必须能证明修对了）
+
+**三条都"是"才加。**
+
+**写 verify 的坑（踩过）**：`ctx.manifest` / `ctx.docs` 是**调用前的内存快照**，
+写盘后不会自动更新。`verify` 必须 `ctx.read()` 重新读盘，否则会出现
+「明明改了却验证失败 → 被回滚」。
 
 ## 已知坑（都实测踩过）
 
@@ -132,7 +162,7 @@ dsh/skills/cxstudy/SKILL.md            DSH 技能（操作手册）
 ## 提交前
 
 ```bash
-node scripts/selftest.mjs   # 12 项全绿（含交付层一致性门）
+node scripts/selftest.mjs   # 13 项全绿（含交付层一致性门）
 ```
 
 **改了命令/工具/版本号，`manifest.json` 必须同步**，否则第 8 阶段会红。

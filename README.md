@@ -25,7 +25,7 @@
 | 加自己学校的源 | 给模板 + 提示词，让**你的 AI** 去拆解并复刻 | `cxa info sources` |
 | 看云盘 | 根目录列表（需浏览器，约 8 秒） | `cxa pan` |
 
-**17 个命令，10 个 MCP 工具，312 条单测，13 项自检。**
+**18 个命令，10 个 MCP 工具，333 条单测，13 项自检。**
 
 ---
 
@@ -338,7 +338,7 @@ node scripts/selftest.mjs    # 全量自检（语法/单测/密钥/命令/MCP/�
 |---|---|---|
 | [`AGENT-CONTRACT.md`](AGENT-CONTRACT.md) | **所有 AI** | **契约**：能力边界、决策树、五个必踩的坑、演进规则 |
 | [`manifest.json`](manifest.json) | **机器** | 能力清单（JSON）：命令、MCP 工具、参数、`kind`、弃用、边界 |
-| [`dsh/skills/cxstudy/SKILL.md`](dsh/skills/cxstudy/SKILL.md) | **DSH** | 技能：17 条命令什么时候用、坏了怎么查 |
+| [`dsh/skills/cxstudy/SKILL.md`](dsh/skills/cxstudy/SKILL.md) | **DSH** | 技能：18 条命令什么时候用、坏了怎么查 |
 | [`llms.txt`](llms.txt) | **任何 AI** | 一页自包含说明：是什么、怎么装、怎么用、边界 |
 
 `CLAUDE.md` / `.cursorrules` / `GEMINI.md` 是三个客户端的导流文件（各一行，指向契约）。
@@ -386,7 +386,7 @@ src/
   notify/     推送通道（5 个）+ 配置
   study/      备考档案（聚合 + 章节识别 + 证据分级）
   paths.mjs   配置目录解析（CXA_HOME）
-  cli.mjs     CLI 入口（17 个子命令）
+  cli.mjs     CLI 入口（18 个子命令）
 mcp/server.mjs  MCP server（stdio，10 个工具）
 scripts/        独立脚本（自检 / 夹具生成 / 播放器 / 探测）
 test/           单测 + fixtures（真实响应裁剪，不是手写理想 HTML）

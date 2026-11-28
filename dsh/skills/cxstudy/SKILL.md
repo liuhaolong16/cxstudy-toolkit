@@ -29,7 +29,7 @@ cxa courses          # 输出 courseId / clazzId / cpi —— 后面几乎所有
 
 ---
 
-## 二、17 条命令，按场景分
+## 二、18 条命令，按场景分
 
 ### 查数据（只读，直接跑）
 
@@ -193,7 +193,7 @@ cxa exam --course <课程名> [--out <目录>] [--json] [--no-video]
 本项目的入口有四种，按你的环境选：
 
 - **支持 MCP**（Claude Code / Cursor / WorkBuddy / 千问桌面端）→ `node mcp/server.mjs`（10 个工具）
-- **有 shell** → `cxa <子命令> --json`（17 个命令，`--json` 出机器可读）
+- **有 shell** → `cxa <子命令> --json`（18 个命令，`--json` 出机器可读）
 - **只能读写文件** → `.captcha-tmp/`、`.cxstudy-questions/` 里的 JSON
 - **只能读文档** → `llms.txt`（一份自包含的完整说明）
 

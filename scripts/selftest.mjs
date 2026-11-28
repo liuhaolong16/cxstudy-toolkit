@@ -95,7 +95,7 @@ record('USAGE 有命令', declared.length > 0, `${declared.length} 个：${decla
 
 // 每个命令用一个不可能成功的调用探一下：能进到命令自己的逻辑（而不是落到 default 分支打印 USAGE）
 // 就能证明路由接上了。用 --help 这类不存在的参数不会触发网络。
-const KNOWN_HANDLERS = new Set(['auth', 'courses', 'chapters', 'exams', 'schedule', 'plan', 'brief', 'notify', 'notices', 'exam', 'info', 'pan', 'materials', 'play', 'check', 'audit', 'mcp']);
+const KNOWN_HANDLERS = new Set(['auth', 'courses', 'chapters', 'exams', 'schedule', 'plan', 'brief', 'notify', 'notices', 'exam', 'info', 'pan', 'materials', 'play', 'check', 'audit', 'heal', 'mcp']);
 const missingRoute = declared.filter((c) => !KNOWN_HANDLERS.has(c));
 record('命令都有处理器', missingRoute.length === 0, missingRoute.length ? `未接路由：${missingRoute.join(', ')}` : '全部接上');
 

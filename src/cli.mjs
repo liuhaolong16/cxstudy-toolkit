@@ -39,6 +39,7 @@ import {
   advice as usageAdvice,
   renderUsageSection,
 } from './evolve/usage.mjs';
+import { runRecipes, renderHealReport } from './evolve/recipes.mjs';
 
 const argv = process.argv.slice(2);
 
@@ -94,6 +95,8 @@ const USAGE = `
   cxa play --cid <id> --clz <id>          后台连播视频（题目/文档跳过）
   cxa check [--cid --clz]                 跑判据门
   cxa audit [--json] [--fix]              交付面审计：文档数字/清单/过时结论 vs 实现
+  cxa heal [--apply --yes] [--commit]     自愈：按配方自动改代码（默认预演，不碰文件）
+      --with-tests                        连文档数字一起修（会跑一遍单测，约 30 秒）
   cxa mcp                                 以 MCP server 方式运行（stdio）
 
 play 选项：
@@ -1464,6 +1467,152 @@ async function cmdAudit() {
   return audit.fail === 0 ? 0 : 1;
 }
 
+/**
+ * 自愈：让系统**改自己的代码**。
+ *
+ * ## 为什么要有这个
+ *
+ * `cxa audit` 能发现问题，`--fix` 只能修版本号。但普通迭代（人改）有上限 ——
+ * 一个人不可能每天盯着这个仓库。真正的版本迭代需要系统自己往前推一步。
+ *
+ * ## 安全边界（这是关键）
+ *
+ * **不是让模型自由生成代码**，而是跑**配方**：
+ *
+ * ```
+ * 配方 = 探测（可判定）+ 修复（确定性字符串操作）+ 验证（能红）
+ * ```
+ *
+ * 三段缺一不可。默认 **dry-run**，只告诉你"会改什么"，不碰文件。
+ *
+ * `--apply` 之后：
+ * 1. 写盘
+ * 2. **立刻验证**
+ * 3. 验证不过 → **自动回滚**（这是最重要的一步）
+ *
+ * ## 为什么 `--apply` 还要再 `--yes`
+ *
+ * 改自己的源码是有后果的。两道开关不是防你，是防手滑和防脚本自动跑。
+ */
+async function cmdHeal() {
+  const cwd = process.cwd();
+  const readIf = (rel) => {
+    const p = path.join(cwd, rel);
+    return fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : null;
+  };
+  const writeFile = (rel, content) => fs.writeFileSync(path.join(cwd, rel), content, 'utf8');
+
+  const apply = has('apply');
+  const commit = has('commit');
+  if (commit && !apply) {
+    log('✗ --commit 需要配合 --apply（不能只提交不修）');
+    return 1;
+  }
+  if (apply && !has('yes')) {
+    log('✗ 改源码要两道开关：`cxa heal --apply --yes`');
+    log('  先跑 `cxa heal` 看会改什么，确认没问题再加 --apply --yes');
+    return 1;
+  }
+
+  /* ---- 收集上下文 ---- */
+  const cliSrc = readIf('src/cli.mjs') || '';
+  const cliCases = [...new Set([...cliSrc.matchAll(/case\s+'([a-z][a-z0-9-]*)'\s*:/g)].map((m) => m[1]))].sort();
+
+  const DOC_FILES = ['AGENT-CONTRACT.md', 'dsh/skills/cxstudy/SKILL.md', 'llms.txt', 'README.md', 'DISCLAIMER.md'];
+  const docs = [];
+  for (const f of DOC_FILES) {
+    const t = readIf(f);
+    if (t) docs.push({ file: f, text: t });
+  }
+
+  let manifest = null;
+  try {
+    manifest = JSON.parse(readIf('manifest.json') || 'null');
+  } catch (e) {
+    log(`✗ manifest.json 解析失败：${e.message}`);
+    return 1;
+  }
+  const pkg = JSON.parse(readIf('package.json') || '{}');
+
+  const actual = { cliCommands: cliCases.length };
+  const mcpSrc = readIf('mcp/server.mjs') || '';
+  actual.mcpTools = [...new Set([...mcpSrc.matchAll(/\b(cx_[a-z]+)\s*:/g)].map((m) => m[1]))].length;
+
+  // 文档数字要修，必须先知道真实单测条数 —— 只有 --with-tests 才跑（约 30 秒）
+  if (has('with-tests')) {
+    log('  跑单测拿真实条数（约 30 秒）…');
+    const { spawnSync } = await import('node:child_process');
+    const testFiles = fs.readdirSync(path.join(cwd, 'test')).filter((f) => f.endsWith('.test.mjs'));
+    const r = spawnSync(process.execPath, ['--test', ...testFiles.map((f) => `test/${f}`)], {
+      cwd,
+      encoding: 'utf8',
+      timeout: 300_000,
+    });
+    const m = ((r.stdout || '') + (r.stderr || '')).match(/# pass (\d+)/);
+    if (m) actual.unitTests = Number(m[1]);
+  }
+
+  const ctx = { read: readIf, manifest, pkg, docs, actual, cliCases };
+
+  /* ---- 跑配方 ---- */
+  const result = runRecipes(ctx, { apply, writeFile: apply ? writeFile : null });
+
+  log('');
+  log(renderHealReport(result, { dryRun: !apply }));
+
+  /* ---- 结果 ---- */
+  if (result.failed.length) {
+    log('✗ 有配方失败（已回滚的会恢复原样）');
+    return 1;
+  }
+
+  if (!apply) {
+    if (result.planned.length) {
+      log(`预演完成：${result.planned.length} 个配方可修。确认无误后跑：`);
+      log('');
+      log('  cxa heal --apply --yes            # 真改');
+      log('  cxa heal --apply --yes --commit   # 改完验证通过就提交');
+      log('');
+      log('  想连文档数字一起修：加 --with-tests（会跑一遍单测）');
+    } else {
+      log('✓ 没有需要自动修的问题');
+    }
+    return 0;
+  }
+
+  if (result.applied.length) {
+    log(`✓ 已修 ${result.applied.length} 项，全部验证通过`);
+
+    // --commit：验证通过后自动提交（这是"版本迭代"闭环的最后一步）
+    if (commit) {
+      const { spawnSync } = await import('node:child_process');
+      const ids = result.applied.map((a) => a.id).join(',');
+      const msg = `chore(heal): 自愈 ${ids}\n\n由 cxa heal 自动修并验证通过：\n${result.applied.map((a) => `- ${a.title}：${a.verify}`).join('\n')}`;
+      const add = spawnSync('git', ['add', '-A'], { cwd, encoding: 'utf8' });
+      if (add.status !== 0) {
+        log(`✗ git add 失败：${add.stderr}`);
+        return 1;
+      }
+      const cm = spawnSync('git', ['-c', 'user.name=liuhaolong16', '-c', 'user.email=liuhaolong16@users.noreply.github.com', 'commit', '-m', msg], {
+        cwd,
+        encoding: 'utf8',
+      });
+      if (cm.status !== 0) {
+        log(`✗ git commit 失败：${cm.stderr || cm.stdout}`);
+        return 1;
+      }
+      log(`✓ 已提交（${result.applied.length} 个配方）`);
+      log('');
+      log('  下一步：node scripts/selftest.mjs 确认全绿，然后 git push');
+    } else {
+      log('');
+      log('  下一步：node scripts/selftest.mjs 确认没搞坏别的，再自己提交');
+    }
+  }
+
+  return 0;
+}
+
 async function cmdCheck() {
   const courseId = num('cid');
   const classId = num('clz');
@@ -1556,6 +1705,8 @@ async function main() {
       return cmdCheck();
     case 'audit':
       return cmdAudit();
+    case 'heal':
+      return cmdHeal();
     case 'mcp': {
       await import('../mcp/server.mjs');
       return null; // mcp server 自己接管进程
