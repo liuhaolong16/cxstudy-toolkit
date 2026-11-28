@@ -135,19 +135,74 @@ export function groupMaterialsByValue(materials) {
 }
 
 /**
+ * 从任务点（jobs）里按章聚合「视频总时长」。
+ *
+ * ## 为什么用这个当第二权重
+ *
+ * 独立测试建议加「课时/学时」，因为每份教学大纲都有学时分配表。
+ * 但实测探测发现：**学习通没有「课时」字段** —— `cards` 接口 200，
+ * 扫了 86 个 JSON 键、中文关键词、data-* 属性，全无。
+ *
+ * 但有一个真实可用的：`attDuration` —— 单个视频附件的秒数
+ * （实测 `9.1醛和酮的基础知识.mp4` → 435 秒）。
+ *
+ * **它是老师在这章投入的讲解时间**，对纯视频课能替代"课时"。
+ *
+ * ## 但必须诚实命名
+ *
+ * 叫「本章视频总时长」，**不叫课时**。理由：
+ * - 它只算视频；没做成视频的章 = 0，**不代表不重要**
+ * - 它不是教学计划里的"学时"
+ *
+ * 名字错了就是误导 —— 这是本项目的底线。
+ *
+ * @param {Array} jobs fetchJobs 的输出（含 type / attDuration / name）
+ * @returns {Map<number, {seconds:number, videos:string[]}>} 章号 → 视频总秒数与文件名
+ */
+export function aggregateVideoMinutes(jobs) {
+  const out = new Map();
+  for (const j of jobs || []) {
+    if (!j || j.type !== 'video') continue;
+    const name = j.name || j.title || '';
+    const sec = Number(j.attDuration);
+    if (!Number.isFinite(sec) || sec <= 0) continue;
+    // 用视频文件名里的章号（视频名通常带 9.1 / 第9章 这类前缀）
+    const ch = guessChapterNo(name);
+    if (ch == null) continue;
+    if (!out.has(ch)) out.set(ch, { seconds: 0, videos: [] });
+    const e = out.get(ch);
+    e.seconds += sec;
+    e.videos.push(name);
+  }
+  return out;
+}
+
+/**
+ * 把秒数格式化成「1 小时 23 分」/「7 分」/「45 秒」。
+ */
+export function fmtDuration(sec) {
+  const s = Math.round(Number(sec) || 0);
+  if (s < 60) return `${s} 秒`;
+  const m = Math.floor(s / 60);
+  const h = Math.floor(m / 60);
+  if (h) return `${h} 小时 ${m % 60} 分`;
+  return `${m} 分`;
+}
+
+/**
  * 从课件 + 作业里抽「每章的证据」。
  *
  * @param {Array} materials 资料区条目（需有 name）
  * @param {Array} works     pickWorkItems 的输出（需有 title）
  * @returns {{chapters:Array, summary:object}}
  */
-export function buildFocusEvidence(materials, works) {
+export function buildFocusEvidence(materials, works, videoMinutes) {
   /** @type {Map<number, {chapter:number, materialNames:string[], workTitles:string[], strength:object}>} */
   const map = new Map();
 
   const ensure = (ch) => {
     if (!map.has(ch)) {
-      map.set(ch, { chapter: ch, materialNames: [], workTitles: [], strength: null });
+      map.set(ch, { chapter: ch, materialNames: [], workTitles: [], videoSeconds: 0, videos: [], strength: null });
     }
     return map.get(ch);
   };
@@ -163,6 +218,14 @@ export function buildFocusEvidence(materials, works) {
     const ch = guessChapterNo(w.title);
     if (ch == null) continue;
     ensure(ch).workTitles.push(w.title);
+  }
+  // 视频时长：真实字段 attDuration 累加（探测已确认学习通没有「课时」字段）
+  if (videoMinutes instanceof Map) {
+    for (const [ch, v] of videoMinutes) {
+      const e = ensure(ch);
+      e.videoSeconds = v.seconds;
+      e.videos = v.videos;
+    }
   }
 
   const chapters = [...map.values()]
@@ -255,14 +318,23 @@ export function renderFocusEvidence(input) {
     lines.push('> 3. **联网查本校本课程的考纲**，或问老师要考试范围');
     lines.push('');
   }
-  lines.push('| 章 | 信号 | 作业（老师选过的） | 课件 |');
-  lines.push('|---|---|---|---|');
+  lines.push('| 章 | 信号 | 作业（老师选过的） | 课件 | 视频时长 |');
+  lines.push('|---|---|---|---|---|');
   for (const c of chapters) {
     const works_ = c.workTitles.length ? c.workTitles.join('；') : '—';
     const mats = c.materialNames.length ? `${c.materialNames.length} 份` : '—';
-    lines.push(`| 第 ${c.chapter} 章 | ${c.strength.label} | ${works_} | ${mats} |`);
+    // 视频时长：真实字段 attDuration 累加。**不改权重**——名字是"视频时长"不是"课时"，
+    // 没做成视频的章是 0，不代表不重要，交给 AI 自己判断。
+    const vid = c.videoSeconds > 0 ? fmtDuration(c.videoSeconds) : '—';
+    lines.push(`| 第 ${c.chapter} 章 | ${c.strength.label} | ${works_} | ${mats} | ${vid} |`);
   }
   lines.push('');
+  if (chapters.some((c) => c.videoSeconds > 0)) {
+    lines.push('**「视频时长」是什么**：这一章所有讲课视频的总秒数（来自任务点的 `attDuration` 字段）。');
+    lines.push('它近似"老师在这章讲了多少"，**但不等于教学计划里的学时**：');
+    lines.push('没做成视频的章显示 `—`，不代表那章不重要。**所以它只作参考，不参与上面的信号分级。**');
+    lines.push('');
+  }
   lines.push('**信号强度的依据**（写在代码里，可以核对）：');
   for (const [k, v] of Object.entries(SIGNAL_STRENGTH)) {
     lines.push(`- \`${k}\`（${v.label}，权重 ${v.weight}）：${v.why}`);

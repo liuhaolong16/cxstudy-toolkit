@@ -25,6 +25,8 @@ import { buildDossier, filterWorksByCourse, filterExamsByCourse } from './study/
 import { ALL_EXAMS, schoolEntries, nextOccurrence } from './info/exams.mjs';
 import { listSources, validateSource, buildAddSourcePrompt, SOURCE_TEMPLATE, SOURCE_KINDS } from './info/sources.mjs';
 import { listPanRoot } from './api/pan.mjs';
+import { fetchJobs } from './api/job.mjs';
+import { aggregateVideoMinutes } from './study/exam-focus.mjs';
 import { ChromeSession } from './browser/cdp.mjs';
 import { playKnowledge, inspectKnowledge } from './browser/player.mjs';
 import { runGates, summarize } from './gates/index.mjs';
@@ -744,6 +746,74 @@ async function cmdNotices() {
  * 掌握程度，程序不知道；自称"自动生成重点"的工具在没有考纲时只能编，编出来的
  * 重点会把复习方向带偏，比没有更糟。所以档案末尾附一段可粘给 AI 的提示词。
  */
+/**
+ * 收集「每章视频总时长」。
+ *
+ * 开一次浏览器拿章节列表（章节页是 JS 渲染的），然后并发请求每章的 cards 接口
+ * 取任务点，把视频的 `attDuration` 秒数累加。
+ *
+ * 为什么要这么绕：实测探测确认学习通**没有「课时」字段**
+ * （cards 接口 200，扫了 86 个 JSON 键 + 中文关键词 + data-* 属性，全无），
+ * 但任务点里有 `attDuration`（单个视频的秒数，实测 435 秒 = 7分15秒）。
+ * 累加它近似"老师在这章讲了多少"。
+ *
+ * **诚实边界**：这是"视频时长"，不是"学时"。没做成视频的章是 0，不代表不重要。
+ * 所以它只进表格当参考列，**不参与信号分级**。
+ */
+async function collectVideoMinutes(course, degradedCtx) {
+  const session = await ChromeSession.launch({ headless: true, cookies: loadCookies() });
+  let chapters = [];
+  try {
+    const ch = await listChapters(session, {
+      courseId: course.courseId,
+      classId: course.clazzId,
+      personId: course.personId || course.cpi,
+    });
+    chapters = (ch.chapters || []).filter((c) => c.knowledgeId);
+  } finally {
+    await session.close();
+  }
+
+  if (!chapters.length) {
+    degradedCtx.push('视频时长（章节列表为空）');
+    return null;
+  }
+
+  // 并发 5 个，别把对方服务器打太狠
+  const allJobs = [];
+  const BATCH = 5;
+  for (let i = 0; i < chapters.length; i += BATCH) {
+    const batch = chapters.slice(i, i + BATCH);
+    const rs = await Promise.all(
+      batch.map((c) =>
+        fetchJobs({
+          courseId: course.courseId,
+          clazzId: course.clazzId,
+          cpi: course.personId || course.cpi,
+          knowledgeId: c.knowledgeId,
+        }).catch(() => ({ jobs: [] })),
+      ),
+    );
+    for (const r of rs) allJobs.push(...(r.jobs || []));
+  }
+
+  // 空结果必须显形 —— 静默返回空 Map 是最糟的：
+  // 档案里会显示一排「—」，用户以为是"这门课没视频"，其实是解析失败。
+  // （实测：cards 接口直接请求能拿到 attDuration，但 fetchJobs 返回 0 个 job，
+  //  说明 parseCards 没吃下这批数据 —— 这是个已知未修的问题。）
+  if (!allJobs.length) {
+    degradedCtx.push(`视频时长（${chapters.length} 个章节都没解析出任务点）`);
+    return null;
+  }
+
+  const map = aggregateVideoMinutes(allJobs);
+  if (!map.size) {
+    degradedCtx.push(`视频时长（有 ${allJobs.length} 个任务点，但没有一个是能识别章号的视频）`);
+    return null;
+  }
+  return map;
+}
+
 async function cmdExam() {
   const rc = await resolveCourseArg();
   if (!rc.ok) {
@@ -770,19 +840,37 @@ async function cmdExam() {
   const works = filterWorksByCourse(allWorks, course);
   const notices = ntRes.ok ? ntRes.notices : [];
 
+  // 先声明 degraded（视频时长那段也会往里 push，所以要放在它前面）
+  const degraded = [];
+  if (!matRes.ok) degraded.push(`资料区（${matRes.reason}）`);
+  if (!exRes.ok) degraded.push(`考试（${exRes.reason}）`);
+  if (!ntRes.ok) degraded.push(`通知（${ntRes.reason}）`);
+  if (!schRes.ok) degraded.push(`课表（${schRes.reason}）`);
+  const degradedCtx = degraded;
+
   // 课表用于"上课时间"一节
   let meta = null;
   if (schRes.ok) {
     meta = { lessons: schRes.lessons };
   }
 
-  const degraded = [];
-  if (!matRes.ok) degraded.push(`资料区（${matRes.reason}）`);
-  if (!exRes.ok) degraded.push(`考试（${exRes.reason}）`);
-  if (!ntRes.ok) degraded.push(`通知（${ntRes.reason}）`);
-  if (!schRes.ok) degraded.push(`课表（${schRes.reason}）`);
+  // 视频时长：需要章节列表（要浏览器）+ 每章一次 cards（纯 HTTP）。
+  // 实测探测确认学习通**没有「课时」字段**，但任务点里有 `attDuration`（单个视频的秒数）。
+  // 累加它近似"老师在这章讲了多少"，比"课件份数"可信。
+  // 代价：多开一次浏览器 + N 次请求（23 章约 10 秒）。可用 --no-video 关掉。
+  let videoMinutes = null;
+  if (!has('no-video')) {
+    try {
+      log('  取视频时长（要开一次浏览器，约 10 秒）…');
+      videoMinutes = await collectVideoMinutes(course, degradedCtx);
+    } catch (e) {
+      // 这一项失败不该拖垮整份档案，但要显形
+      degradedCtx.push(`视频时长（${e.message}）`);
+      log(`  ⚠ 视频时长取不到：${e.message}`);
+    }
+  }
 
-  const md = buildDossier({ course, materials, exams, works, notices, meta, degraded });
+  const md = buildDossier({ course, materials, exams, works, notices, meta, degraded, videoMinutes });
 
   // 统计给个摘要，让用户知道收集到了什么
   log('');
