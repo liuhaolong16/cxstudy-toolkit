@@ -19,6 +19,7 @@ import { request } from '../src/api/client.mjs';
 import { listExams, pendingExams } from '../src/api/exams.mjs';
 import { listMaterials, findMaterials, downloadMaterial } from '../src/api/materials.mjs';
 import { fetchSchedule, expandOccurrences, toICS, formatWeek } from '../src/api/schedule.mjs';
+import { fetchNoticesPage, fetchAllNotices, pickWorkItems } from '../src/api/notices.mjs';
 import { ChromeSession } from '../src/browser/cdp.mjs';
 import { playKnowledge, inspectKnowledge } from '../src/browser/player.mjs';
 import { runGates, summarize } from '../src/gates/index.mjs';
@@ -214,6 +215,64 @@ const tools = {
       }
 
       return result;
+    },
+  },
+
+  cx_notices: {
+    description:
+      '学习通通知中心。传 onlyWork=true 只返回**作业/考试入口**（含可直接打开的 url）——' +
+      '作业列表接口需要动态签名很难调，但通知的附件里已经带了作业入口，这是拿作业清单的兜底通路。' +
+      '传 all=true 翻页拉更多（默认只拉第一页 20 条）。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        onlyWork: { type: 'boolean', description: 'true 则只返回作业/考试入口' },
+        all: { type: 'boolean', description: 'true 则翻页拉更多' },
+        maxPages: { type: 'number', description: 'all=true 时最多翻几页，默认 5' },
+      },
+      additionalProperties: false,
+    },
+    async run(args) {
+      const r = args.all
+        ? await fetchAllNotices(request, { maxPages: args.maxPages ?? 5 })
+        : await fetchNoticesPage(request);
+      if (!r.ok) return { error: r.reason };
+
+      if (args.onlyWork) {
+        const works = pickWorkItems(r.notices);
+        return {
+          count: works.length,
+          works: works.map((w) => ({
+            kind: w.kind, // work | exam
+            title: w.title,
+            courseName: w.courseName,
+            courseId: w.courseId,
+            clazzId: w.clazzId,
+            start: w.startTime instanceof Date ? w.startTime.toISOString() : null,
+            url: w.url,
+            isRead: w.isRead,
+          })),
+          hint: works.length ? undefined : '通知里没有作业/考试入口',
+        };
+      }
+
+      const unread = r.notices.filter((n) => !n.isRead).length;
+      return {
+        count: r.notices.length,
+        unread,
+        pages: r.pages ?? 1,
+        hasMore: r.hasMore,
+        notices: r.notices.map((n) => ({
+          courseName: n.courseName,
+          title: n.title,
+          sender: n.sender,
+          isRead: n.isRead,
+          insertTime: n.insertTime ? n.insertTime.toISOString() : null,
+          attachmentCount: n.attachments.length,
+          attachmentBroken: n.attachmentBroken || undefined,
+        })),
+        hint: r.hasMore ? '还有更早的通知，传 all=true 翻页' : undefined,
+      };
     },
   },
 

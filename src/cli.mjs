@@ -20,6 +20,7 @@ import { listMaterials, findMaterials, downloadMaterial } from './api/materials.
 import { fetchSchedule, expandOccurrences, toICS, formatWeek, weekOfDate, lessonsOnDate, freeSlotsOnDate } from './api/schedule.mjs';
 import { CHANNELS, notify } from './notify/channels.mjs';
 import { resolveConfig, saveConfig, describeConfig, CONFIG_PATH } from './notify/config.mjs';
+import { fetchNoticesPage, fetchAllNotices, pickWorkItems } from './api/notices.mjs';
 import { ChromeSession } from './browser/cdp.mjs';
 import { playKnowledge, inspectKnowledge } from './browser/player.mjs';
 import { runGates, summarize } from './gates/index.mjs';
@@ -68,6 +69,7 @@ const USAGE = `
   cxa plan [--days 14]                    时间规划：未来 N 天的课 + 考试 + 空闲
   cxa brief [--days 7]                    生成一段 Markdown 简报，粘给任何 AI（豆包/千问/WorkBuddy）
   cxa notify <channels|set|status|test|brief>  把简报推到手机（企业微信/飞书/钉钉/Server酱/PushPlus）
+  cxa notices [--work] [--all] [--json]   通知中心（--work 只看作业/考试入口）
   cxa materials --course <名>              课程资料区
       --find <关键词>                      递归搜（配合 --download 一起下载）
       --download <目录>
@@ -663,6 +665,71 @@ async function cmdNotify() {
   return 2;
 }
 
+/**
+ * 通知中心。
+ *
+ * 价值最高的是 `--work`：作业列表接口（mooc2/work/list）需要动态签名 enc，很难啃，
+ * 但**通知的附件里已经带了作业入口**（examOrWorkId / courseId / clazzId / url）。
+ * 所以这是拿作业清单的兜底通路。
+ */
+async function cmdNotices() {
+  const wantAll = has('all');
+  const maxPages = num('pages', 5);
+
+  const r = wantAll ? await fetchAllNotices(request, { maxPages }) : await fetchNoticesPage(request);
+  if (!r.ok) {
+    log(`✖ 读取通知失败：${r.reason}`);
+    return 1;
+  }
+
+  if (has('json')) {
+    if (has('work')) {
+      log(JSON.stringify({ ok: true, works: pickWorkItems(r.notices) }, null, 2));
+    } else {
+      log(JSON.stringify({ ok: true, notices: r.notices }, null, 2));
+    }
+    return 0;
+  }
+
+  // --work：只列作业/考试入口
+  if (has('work')) {
+    const works = pickWorkItems(r.notices);
+    if (!works.length) {
+      log('通知里没找到作业/考试入口。');
+      return 0;
+    }
+    log(`通知里的作业/考试 ${works.length} 条\n`);
+    const p = (n) => String(n).padStart(2, '0');
+    for (const w of works) {
+      const t = w.startTime instanceof Date ? `${p(w.startTime.getMonth() + 1)}-${p(w.startTime.getDate())} ${p(w.startTime.getHours())}:${p(w.startTime.getMinutes())}` : '时间未知';
+      log(`  [${w.kind === 'exam' ? '考试' : '作业'}] ${w.title || '(无标题)'}`);
+      log(`         课程：${w.courseName || w.courseId}　开始：${t}　${w.isRead ? '已读' : '未读'}`);
+      if (w.url) log(`         入口：${w.url}`);
+      log('');
+    }
+    return 0;
+  }
+
+  const unread = r.notices.filter((n) => !n.isRead).length;
+  log(`通知 ${r.notices.length} 条（未读 ${unread}）` + (wantAll ? `，翻了 ${r.pages} 页` : ''));
+  if (!wantAll && r.hasMore) log('  还有更早的，加 --all 翻页拉更多');
+  log('');
+
+  const p = (n) => String(n).padStart(2, '0');
+  for (const n of r.notices) {
+    const d = n.insertTime;
+    const when = d instanceof Date ? `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}` : '?';
+    log(`${n.isRead ? '     ' : '[未读]'} ${when}  ${n.courseName || n.receivers[0]?.name || '（无课程名）'}`);
+    if (n.title) log(`        ${n.title}`);
+    for (const a of n.attachments) {
+      log(`        ${a.kind === 'exam' ? '考试' : '作业'}：${a.title}`);
+    }
+  }
+  log('');
+  log('提示：--work 只看作业/考试入口；--all 翻页；--json 机读');
+  return 0;
+}
+
 async function cmdMaterials() {
   const rc = await resolveCourseArg();
   if (!rc.ok) {
@@ -939,6 +1006,8 @@ async function main() {
       return cmdBrief();
     case 'notify':
       return cmdNotify();
+    case 'notices':
+      return cmdNotices();
     case 'play':
       return cmdPlay();
     case 'check':

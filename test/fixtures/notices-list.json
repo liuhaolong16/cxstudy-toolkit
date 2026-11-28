@@ -1,0 +1,291 @@
+{
+  "notices": {
+    "lastPage": 0,
+    "lastGetId": "<LAST-GET-ID>",
+    "list": [
+      {
+        "attachment": "[{\"attachmentType\":25,\"att_web\":{\"examOrWorkId\":58850496,\"examOrWork\":\"work\",\"clazzId\":151629641,\"logo\":\"https://mooc1.chaoxing.com/images/statistic/phone/zyNew.png\",\"title\":\"新建作业20261126131843\",\"courseId\":265874869,\"content\":\"11-26 13:22\",\"url\":\"https://mooc1-api.chaoxing.com/examApi/intoexamorwork?taskrefId=58850496&courseId=265874869&classId=151629641&workOrExam=work&enc=615f4942783ac4c1a9fdfd9c1f64970d\"},\"examOrTextId\":58850496,\"cid\":\"99f4400d-2f76-46f7-9a2a-d936e1856185\"}]",
+        "clickPraise": true,
+        "collect": 0,
+        "completeTime": "2026-11-26 13:22:56",
+        "content": "课程名称：习近平新时代中国特色社会主义思想概论\r作业名称：新建作业20261126131843\r开始时间：2026-11-26 13:20\r",
+        "count_all": 1,
+        "count_read": 1,
+        "createrId": 0,
+        "createrName": "学习通知",
+        "createrPuid": 0,
+        "extendParam": {
+          "cparams": "{\"rawType\":3,\"funConfig\":{\"funTag\":3,\"content\":{\"courseType\":0,\"courseName\":\"习近平新时代中国特色社会主义思想概论\",\"startTime\":\"1795670444000\",\"endTime\":\"\",\"title\":\"新建作业20261126131843\",\"courseId\":265874869,\"key\":\"58850496-151629641\"}}}",
+          "funNotice": 0,
+          "includeFids": "0",
+          "showRead": 1,
+          "showReceiver": 1,
+          "visible": 0
+        },
+        "grayReadTag": false,
+        "idCode": "<IDCODE-1>",
+        "insertTime": 1795670576000,
+        "isRtf": 1,
+        "isread": 1,
+        "logo": "http://p.cldisk.com/star4/02a6d4377246d85f904f0e92394895ee/origin.png",
+        "personStatus": 0,
+        "receiverArray": [
+          {
+            "clazzId": "151629641",
+            "name": "<CLASS-NAME>",
+            "type": 4,
+            "courseId": "265874869"
+          }
+        ],
+        "recycle": 0,
+        "redDot": 1,
+        "reqSendParams": 0,
+        "rtf_content": "",
+        "s_praisecount": "",
+        "sendDuration": "",
+        "sendTag": 0,
+        "sendTime": "2026-11-26 13:22:56",
+        "send_sign": 0,
+        "showPraise": true,
+        "source": 2,
+        "sourceType": 14,
+        "status": 0,
+        "tag": "courseId265874869",
+        "title": "作业:《习近平新时代中国特色社会主义思想概论》新建作业20261126131843",
+        "toNames": [
+          "<NAME>"
+        ],
+        "toclazzs": "<REDACTED>",
+        "top": 0,
+        "uuid": "$CACG$f225a7df-a526-4ff6-937b-d69ae1450798"
+      },
+      {
+        "attachment": "[{\"attachmentType\":25,\"att_web\":{\"examOrWorkId\":58636023,\"examOrWork\":\"work\",\"clazzId\":152673108,\"logo\":\"http://mooc1.chaoxing.com/images/statistic/phone/zyNew.png\",\"title\":\"第五章 原子吸收法（1）\",\"courseId\":266357324,\"content\":\"11-23 22:16\",\"url\":\"https://mooc1-api.chaoxing.com/examApi/intoexamorwork?taskrefId=58636023&courseId=266357324&classId=152673108&workOrExam=work&enc=cd6c0c4d1aeb410155526174b3068e1d\"},\"examOrTextId\":58636023,\"cid\":\"aea1630e-9735-4ed6-b40b-db8a10fa4a23\"}]",
+        "clickPraise": true,
+        "collect": 0,
+        "completeTime": "2026-11-23 22:16:04",
+        "content": "课程名称：现代仪器分析\r作业名称：第五章 原子吸收法（1）\r你的作业还有24个小时就要结束，请尽快作答",
+        "count_all": 1,
+        "count_read": 1,
+        "createrId": 0,
+        "createrName": "学习通知",
+        "createrPuid": 0,
+        "extendParam": {
+          "cparams": "{\"funConfig\":{\"funTag\":1,\"content\":{\"courseType\":0,\"courseId\":266357324}}}",
+          "funNotice": 0,
+          "includeFids": "0",
+          "showRead": 1,
+          "showReceiver": 1,
+          "visible": 0
+        },
+        "grayReadTag": false,
+        "idCode": "<IDCODE-2>",
+        "insertTime": 1795443364000,
+        "isRtf": 1,
+        "isread": 1,
+        "logo": "http://p.cldisk.com/star4/02a6d4377246d85f904f0e92394895ee/origin.png",
+        "personStatus": 0,
+        "receiverArray": [
+          {
+            "puid": 0,
+            "name": "<CLASS-NAME>",
+            "type": 1
+          },
+          {
+            "puid": 0,
+            "name": "<CLASS-NAME>",
+            "type": 1
+          },
+          {
+            "puid": 0,
+            "name": "<CLASS-NAME>",
+            "type": 1
+          },
+          {
+            "puid": 0,
+            "name": "<CLASS-NAME>",
+            "type": 1
+          },
+          {
+            "puid": 0,
+            "name": "<CLASS-NAME>",
+            "type": 1
+          },
+          {
+            "puid": 0,
+            "name": "<CLASS-NAME>",
+            "type": 1
+          },
+          {
+            "puid": 0,
+            "name": "<CLASS-NAME>",
+            "type": 1
+          },
+          {
+            "puid": 0,
+            "name": "<CLASS-NAME>",
+            "type": 1
+          },
+          {
+            "puid": 0,
+            "name": "<CLASS-NAME>",
+            "type": 1
+          },
+          {
+            "puid": 0,
+            "name": "<CLASS-NAME>",
+            "type": 1
+          },
+          {
+            "puid": 0,
+            "name": "<CLASS-NAME>",
+            "type": 1
+          },
+          {
+            "puid": 0,
+            "name": "<CLASS-NAME>",
+            "type": 1
+          },
+          {
+            "puid": 0,
+            "name": "<CLASS-NAME>",
+            "type": 1
+          },
+          {
+            "puid": 0,
+            "name": "<CLASS-NAME>",
+            "type": 1
+          },
+          {
+            "puid": 0,
+            "name": "<CLASS-NAME>",
+            "type": 1
+          },
+          {
+            "puid": 0,
+            "name": "<CLASS-NAME>",
+            "type": 1
+          },
+          {
+            "puid": 0,
+            "name": "<CLASS-NAME>",
+            "type": 1
+          },
+          {
+            "puid": 0,
+            "name": "<CLASS-NAME>",
+            "type": 1
+          },
+          {
+            "puid": 0,
+            "name": "<CLASS-NAME>",
+            "type": 1
+          },
+          {
+            "puid": 0,
+            "name": "<CLASS-NAME>",
+            "type": 1
+          }
+        ],
+        "recycle": 0,
+        "redDot": 1,
+        "reqSendParams": 0,
+        "rtf_content": "",
+        "s_praisecount": "",
+        "sendDuration": "",
+        "sendTag": 0,
+        "sendTime": "2026-11-23 22:16:04",
+        "send_sign": 0,
+        "showPraise": true,
+        "source": 2,
+        "sourceType": 14,
+        "status": 0,
+        "tag": "courseId266357324",
+        "title": "作业结束提醒",
+        "toNames": [
+          "<NAME>",
+          "<NAME>",
+          "<NAME>",
+          "<NAME>",
+          "<NAME>",
+          "<NAME>",
+          "<NAME>",
+          "<NAME>",
+          "<NAME>",
+          "<NAME>",
+          "<NAME>",
+          "<NAME>",
+          "<NAME>",
+          "<NAME>",
+          "<NAME>",
+          "<NAME>",
+          "<NAME>",
+          "<NAME>",
+          "<NAME>",
+          "<NAME>"
+        ],
+        "top": 0,
+        "users": "[]",
+        "uuid": "$CACG$f86d7407-d835-4a13-a38a-4f89bf461bab"
+      },
+      {
+        "attachment": "[{\"attachmentType\":25,\"att_web\":{\"examOrWorkId\":58636023,\"examOrWork\":\"work\",\"clazzId\":152673108,\"logo\":\"https://mooc1.chaoxing.com/images/statistic/phone/zyNew.png\",\"title\":\"第五章 原子吸收法（1）\",\"courseId\":266357324,\"content\":\"11-19 17:16\",\"url\":\"https://mooc1-api.chaoxing.com/examApi/intoexamorwork?taskrefId=58636023&courseId=266357324&classId=152673108&workOrExam=work&enc=cd6c0c4d1aeb410155526174b3068e1d\"},\"examOrTextId\":58636023,\"cid\":\"533a861b-0be4-4cc1-ac8e-003b5d57e6e2\"}]",
+        "clickPraise": true,
+        "collect": 0,
+        "completeTime": "2026-11-19 17:16:25",
+        "content": "课程名称：现代仪器分析\r作业名称：第五章 原子吸收法（1）\r开始时间：2026-11-19 17:16\r结束时间：2026-11-24 22:16",
+        "count_all": 1,
+        "count_read": 1,
+        "createrId": 0,
+        "createrName": "学习通知",
+        "createrPuid": 0,
+        "extendParam": {
+          "cparams": "{\"rawType\":3,\"funConfig\":{\"funTag\":3,\"content\":{\"courseType\":0,\"courseName\":\"现代仪器分析\",\"startTime\":\"1795079762000\",\"endTime\":\"1795529763000\",\"title\":\"第五章 原子吸收法（1）\",\"courseId\":266357324,\"key\":\"58636023-152673108\"}}}",
+          "funNotice": 0,
+          "includeFids": "0",
+          "showRead": 1,
+          "showReceiver": 1,
+          "visible": 0
+        },
+        "grayReadTag": false,
+        "idCode": "<IDCODE-3>",
+        "insertTime": 1795079784000,
+        "isRtf": 1,
+        "isread": 1,
+        "logo": "http://p.cldisk.com/star4/02a6d4377246d85f904f0e92394895ee/origin.png",
+        "personStatus": 0,
+        "receiverArray": [
+          {
+            "clazzId": "152673108",
+            "name": "<CLASS-NAME>",
+            "type": 4,
+            "courseId": "266357324"
+          }
+        ],
+        "recycle": 0,
+        "redDot": 1,
+        "reqSendParams": 0,
+        "rtf_content": "",
+        "s_praisecount": "",
+        "sendDuration": "1秒",
+        "sendTag": 0,
+        "sendTime": "2026-11-19 17:16:24",
+        "send_sign": 0,
+        "showPraise": true,
+        "source": 2,
+        "sourceType": 14,
+        "status": 0,
+        "tag": "courseId266357324",
+        "title": "作业:《现代仪器分析》第五章 原子吸收法（1）",
+        "toNames": [
+          "<NAME>"
+        ],
+        "toclazzs": "<REDACTED>",
+        "top": 0,
+        "uuid": "$CACG$7727821d-8780-4847-acfc-09602a100844"
+      }
+    ]
+  },
+  "folders": [],
+  "status": true
+}
