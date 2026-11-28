@@ -1278,6 +1278,8 @@ async function cmdPlay() {
     const state = loadState(courseId);
     const doneSet = new Set(state.done || []);
     const skipped = { ...(state.skipped || {}) };
+    // 记下起点的平台计数，后面每处理一个知识点都拿它做「涨了没」的基线
+    state.lastDone = data.progress?.done ?? null;
 
     if (dryRun) {
       // dry-run 要开浏览器扫一遍才能知道任务点类型 —— 这是必要成本
@@ -1391,9 +1393,26 @@ async function cmdPlay() {
         log(`  跳过（${kind || 'unknown'}）`);
       }
 
+      // **只有计数涨了才算真完成**。
+      // 平台完成接口是幂等的：已做过的再调仍返回 200，但计数不涨。
+      // 如果只按「调用成功」就写入 doneSet，下次会误跳过 ——
+      // 实测踩过：3 个文档任务点全返回 ok，实际只涨 1 个。
       if (touchedThisKid) {
-        doneSet.add(String(item.knowledgeId));
-        state.done = [...doneSet];
+        let grew = false;
+        try {
+          const cur = await listChapters(session, { courseId, classId, personId });
+          const prevDone = state.lastDone ?? null;
+          const nowDone = cur.progress?.done ?? null;
+          if (nowDone != null && prevDone != null) grew = nowDone > prevDone;
+          state.lastDone = nowDone;
+          log(`  计数: ${prevDone ?? '?'} → ${nowDone ?? '?'}${grew ? '（涨了，记为完成）' : '（没涨，下次还会重试）'}`);
+        } catch (e) {
+          log(`  计数回读失败（不记完成）：${e.message}`);
+        }
+        if (grew) {
+          doneSet.add(String(item.knowledgeId));
+          state.done = [...doneSet];
+        }
         saveState(courseId, state);
       }
     }
