@@ -305,3 +305,46 @@ test('buildDossier：明确说"这张表不是考纲"（防止被误读）', () 
   });
   assert.ok(md.includes('不是考纲'), '必须写清这张表不是考纲——没有考纲时不能让人误以为筛过了重点');
 });
+
+/* ------------------------------------------------------------------ */
+/* 降级路径：区分「确实没有」与「接口失败」                            */
+/* ------------------------------------------------------------------ */
+
+test('buildDossier：接口失败要显形，不能伪装成"确实没有"', () => {
+  // 项目 AGENTS.md 硬性约定：「失败要显形，不要返回空数组冒充没有数据」。
+  // 独立测试指出：原来资料区 302 和"老师没传"在档案里是同一句话，
+  // 用户会以为是老师没传、而不是接口挂了。
+  const md = buildDossier({
+    course: COURSE,
+    materials: [],
+    exams: [],
+    works: [],
+    notices: [],
+    degraded: ['资料区（http-302）'],
+  });
+  assert.ok(md.includes('有数据源没取到'), '档案开头要显形降级');
+  assert.ok(md.includes('资料区（http-302）'), '要列出具体是哪个源失败');
+  assert.ok(md.includes('资料区接口取数失败'), '课件为空时要说是失败，不是没有');
+  assert.ok(md.includes('不代表老师没传课件'), '要说清这不等于没有');
+});
+
+test('buildDossier：真的没有课件时不说成接口失败', () => {
+  const md = buildDossier({ course: COURSE, materials: [], exams: [], works: [], notices: [], degraded: [] });
+  assert.ok(!md.includes('有数据源没取到'), '没降级就不该出现降级提示');
+  assert.ok(md.includes('资料区里没找到这门课的课件'), '应如实说没找到');
+  assert.ok(!md.includes('接口取数失败'), '不能把"确实没有"说成失败');
+});
+
+test('buildDossier：有数据时降级提示不干扰正文', () => {
+  const md = buildDossier({
+    course: COURSE,
+    materials: [{ name: '第一章 绪论.pdf' }],
+    exams: [],
+    works: [],
+    notices: [],
+    degraded: ['通知（http-500）'],
+  });
+  assert.ok(md.includes('有数据源没取到'), '仍要显形');
+  assert.ok(md.includes('第一章 绪论.pdf'), '课件照常列出');
+  assert.ok(!md.includes('资料区接口取数失败'), '资料区没失败就不说它失败');
+});

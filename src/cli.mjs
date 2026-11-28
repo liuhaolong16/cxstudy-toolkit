@@ -782,7 +782,7 @@ async function cmdExam() {
   if (!ntRes.ok) degraded.push(`通知（${ntRes.reason}）`);
   if (!schRes.ok) degraded.push(`课表（${schRes.reason}）`);
 
-  const md = buildDossier({ course, materials, exams, works, notices, meta });
+  const md = buildDossier({ course, materials, exams, works, notices, meta, degraded });
 
   // 统计给个摘要，让用户知道收集到了什么
   log('');

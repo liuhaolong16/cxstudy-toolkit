@@ -82,7 +82,7 @@ export function groupMaterialsByTopic(items) {
  * @returns {string} Markdown
  */
 export function buildDossier(input) {
-  const { course, materials = [], exams = [], works = [], notices = [], meta = null } = input;
+  const { course, materials = [], exams = [], works = [], notices = [], meta = null, degraded = [] } = input;
   const now = new Date();
   const lines = [];
 
@@ -96,11 +96,29 @@ export function buildDossier(input) {
   lines.push('> 末尾给了一段可以粘给 AI 的提示词 —— 让它结合证据 + 联网查考纲来推断。');
   lines.push('');
 
+  // 数据来源状态：接口失败必须显形。
+  // 原来失败与"确实没有"在档案里是同一句话，用户会以为是老师没传、而不是接口挂了。
+  // 项目 AGENTS.md 的硬性约定：「失败要显形，不要返回空数组冒充没有数据」。
+  if (Array.isArray(degraded) && degraded.length) {
+    lines.push('> ⚠️ **有数据源没取到 —— 下面某些"没找到"其实是接口失败，不是真的没有**：');
+    for (const d of degraded) lines.push(`> - ${d}`);
+    lines.push('>');
+    lines.push('> 这会影响档案的完整性。可以重跑一次；如果一直失败，说明接口变了或登录态失效。');
+    lines.push('');
+  }
+
   /* ---------------- 1. 资料 ---------------- */
   lines.push('## 一、课件资料');
   lines.push('');
   if (!materials.length) {
-    lines.push('资料区里没找到这门课的课件。');
+    // 区分「接口失败」和「确实没有」—— degraded 里有资料区，就说明是失败
+    const matFailed = Array.isArray(degraded) && degraded.some((d) => String(d).includes('资料区'));
+    if (matFailed) {
+      lines.push('**资料区接口取数失败**（见档案开头的「数据来源状态」）—— 这不代表老师没传课件。');
+      lines.push('重跑一次通常就好；一直失败说明接口变了。');
+    } else {
+      lines.push('资料区里没找到这门课的课件。');
+    }
   } else {
     const byChapter = groupMaterialsByTopic(sortMaterialsByChapter(materials));
     lines.push(`共 ${materials.length} 份，按章节归组：`);
