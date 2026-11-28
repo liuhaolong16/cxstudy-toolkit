@@ -22,6 +22,7 @@ import { CHANNELS, notify } from './notify/channels.mjs';
 import { resolveConfig, saveConfig, describeConfig, CONFIG_PATH } from './notify/config.mjs';
 import { fetchNoticesPage, fetchAllNotices, pickWorkItems } from './api/notices.mjs';
 import { buildDossier, filterWorksByCourse, filterExamsByCourse } from './study/dossier.mjs';
+import { ALL_EXAMS, schoolEntries, nextOccurrence } from './info/exams.mjs';
 import { ChromeSession } from './browser/cdp.mjs';
 import { playKnowledge, inspectKnowledge } from './browser/player.mjs';
 import { runGates, summarize } from './gates/index.mjs';
@@ -72,6 +73,7 @@ const USAGE = `
   cxa notify <channels|set|status|test|brief>  把简报推到手机（企业微信/飞书/钉钉/Server酱/PushPlus）
   cxa notices [--work] [--all] [--json]   通知中心（--work 只看作业/考试入口）
   cxa exam --course <名> [--out <目录>]    备考档案：把课件/考试/作业/通知聚合成一份 Markdown
+  cxa info <cet|ncre|kaoyan|gongkao|school>  外部考试与学校入口（只给官方链接与一般规律，不编日期）
   cxa materials --course <名>              课程资料区
       --find <关键词>                      递归搜（配合 --download 一起下载）
       --download <目录>
@@ -826,6 +828,93 @@ async function collectAllFiles(items, course, depth = 0, prefix = '') {
   return out;
 }
 
+/**
+ * 外部信息：四六级 / 计算机等级 / 考研 / 考公 / 学校入口。
+ *
+ * **不查实时数据，也不编具体日期。** 这些考试的时间每年每省都不同，写死的日期
+ * 过一年就是错的，而错的时间会让人错过报名——比不提供更糟。
+ *
+ * 只给三样：官方入口、一般规律（标"通常"）、以及"现在该去查了"的提醒。
+ */
+async function cmdInfo() {
+  const topic = (process.argv[3] || 'all').toLowerCase();
+  const now = new Date();
+
+  if (topic === 'all') {
+    log('外部考试信息（只给官方入口与一般规律，**不是实时数据**）\n');
+    for (const e of ALL_EXAMS) {
+      const n = nextOccurrence(e, now);
+      log(`  ${e.id.padEnd(9)} ${e.name}`);
+      log(`  ${' '.repeat(9)} ${n ? `距下次大约 ${n.days} 天（${n.year}-${String(n.month).padStart(2, '0')}，按通常月份推算）` : '无规律数据'}`);
+      log(`  ${' '.repeat(9)} 官方入口：${e.official[0].url}`);
+      log('');
+    }
+    log('  school    你所在学校的一堆入口（官网/教务处/图书馆/大创/转专业）');
+    log('');
+    log('用法：cxa info <cet|ncre|kaoyan|gongkao|school>');
+    log('**注意**：上面的天数按「通常几月考试」推算，不是官方公布的日期。');
+    return 0;
+  }
+
+  if (topic === 'school') {
+    // 从课表里拿学校名
+    const r = await fetchSchedule(request);
+    let schoolName = null;
+    if (r.ok && r.meta && r.meta.firstWeekDate) {
+      // 学校名在 lesson 的 extend.campus
+      const withCampus = (r.lessons || []).find((l) => l.campus);
+      schoolName = withCampus ? withCampus.campus : null;
+    }
+    if (!schoolName) {
+      log('✖ 没能从课表里拿到学校名。');
+      log('  可以手动指定：cxa info school --name "辽宁科技大学"');
+      const manual = arg('name');
+      if (!manual) return 2;
+      schoolName = manual;
+    }
+    const s = schoolEntries(schoolName);
+    if (!s.ok) {
+      log(`✖ ${s.hint}`);
+      return 2;
+    }
+    log(`${s.school}\n`);
+    for (const e of s.entries) log(`  ${e.label}\n    ${e.url}`);
+    log('');
+    log(s.note);
+    return 0;
+  }
+
+  const exam = ALL_EXAMS.find((e) => e.id === topic);
+  if (!exam) {
+    log(`✖ 未知主题「${topic}」。可用：${ALL_EXAMS.map((e) => e.id).join(' / ')} / school`);
+    return 2;
+  }
+
+  log(exam.name);
+  log('');
+  log('## 官方入口（查自己省的具体时间）');
+  for (const o of exam.official) log(`  ${o.label}\n    ${o.url}`);
+  log('');
+  log('## 一般规律（**不是官方日期**）');
+  log(`  考试月份：${exam.pattern.examMonths.join('、')} 月`);
+  log(`  报名提前：${exam.pattern.signupLeadMonths}`);
+  log(`  ${exam.pattern.note}`);
+  log('');
+  const n = nextOccurrence(exam, now);
+  if (n) {
+    log('## 现在该干什么');
+    log(`  距下次（大约 ${n.year} 年 ${n.month} 月）还有约 **${n.days} 天**`);
+    log(`  ${n.caveat}`);
+    log('');
+  }
+  log('## 谁该关注');
+  for (const w of exam.whoShouldCare) log(`  · ${w}`);
+  log('');
+  log('> 这个模块**不查实时数据**。报名时间由省级考试院发布，每年每省都不同。');
+  log('> 点上面的官方入口查你所在省的准确时间。');
+  return 0;
+}
+
 async function cmdMaterials() {
   const rc = await resolveCourseArg();
   if (!rc.ok) {
@@ -1106,6 +1195,8 @@ async function main() {
       return cmdNotices();
     case 'exam':
       return cmdExam();
+    case 'info':
+      return cmdInfo();
     case 'play':
       return cmdPlay();
     case 'check':
