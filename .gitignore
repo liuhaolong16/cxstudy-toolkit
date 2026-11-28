@@ -19,6 +19,10 @@ played-*.json
 *.state.json
 logs/
 *.log
+# 播放器的两份日志（.err.log 与 .log.err 两种写法都见过，都排除）
+autoplay.log
+autoplay.err.log
+autoplay.log.err
 
 # === 依赖与构建 ===
 node_modules/
@@ -30,14 +34,14 @@ coverage/
 *.tar.gz
 npm-debug.log*
 
-# === 编辑器/系统 ===
+# === 编辑器 / 系统 ===
 .DS_Store
 Thumbs.db
 .idea/
 .vscode/
 *.swp
 
-# === 本地抓取产物（逆向过程生成，不入库） ===
+# === 本地抓取产物（逆向过程生成，不入库）===
 *.har
 rendered-*.html
 course-page.html
@@ -47,14 +51,22 @@ files.json
 scan-result.json
 api-contracts.json
 
-autoplay.log
-autoplay.log.err
-
+# === 临时目录 ===
 .captcha-tmp/
 .cxstudy-tmp/
 
 # 测验临时数据（截图与答案，不进版本库）
 .cxstudy-questions/
 
-# 截图验证产物（verify-quiz-shot.mjs 生成）
+# 截图验证产物（scripts/verify-quiz-shot.mjs 生成）
 .quiz-shot-verify/
+
+# === 交付层：绝不忽略 ===
+# 下面这些是分发包的一部分，写在这里是防止以后有人误加忽略规则
+!manifest.json
+!AGENT-CONTRACT.md
+!llms.txt
+!CLAUDE.md
+!.cursorrules
+!GEMINI.md
+!dsh/skills/cxstudy/SKILL.md

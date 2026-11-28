@@ -31,7 +31,13 @@ test/           单测 + fixtures（真实响应裁剪，不是手写理想 HTML
 docs/           架构、接口、实测发现、AI 接入
 extension/      浏览器扩展
 workbuddy/      跨客户端协作模板（验证码 / 答题）
-dsh/            DSH 技能声明副本
+
+# 交付层（0.4.0 加）：给别的 AI 客户端接入用
+manifest.json       能力清单（机器可读；**改命令必须同步这里**）
+AGENT-CONTRACT.md   契约：能力边界 / 决策树 / 五个坑 / 演进规则
+llms.txt            一页自包含说明（任何客户端都能读）
+CLAUDE.md / .cursorrules / GEMINI.md   三个客户端导流（各一行）
+dsh/skills/cxstudy/SKILL.md            DSH 技能（操作手册）
 ```
 
 ## 硬性约定
@@ -78,8 +84,31 @@ dsh/            DSH 技能声明副本
 `cxa check` 跑 5 道门（env / auth / target / progress / readonly）。红项必须带 `evidence`，
 不允许只给布尔。`skip` 不等于通过。
 
-全量自检 `node scripts/selftest.mjs` 检查 8 项：语法 / 单测 / 密钥 / CLI 命令路由 /
-MCP 工具数 / 关键文档 / 配置路径。**任一项失败退出码非 0；空输出算失败。**
+全量自检 `node scripts/selftest.mjs` 检查 **12 项**：
+
+| 阶段 | 查什么 |
+|---|---|
+| 1 | 语法（每个 .mjs 过 `node --check`） |
+| 2 | 单测（**空输出算失败**，不能"没 FAIL 就算过"） |
+| 3 | 密钥扫描 |
+| 4 | USAGE 里的命令都能路由到处理器 |
+| 5 | MCP 工具数 == 10（真跑一次 `tools/list`） |
+| 6 | 关键文档都在且非空 |
+| 7 | 配置目录可解析 |
+| 8 | **交付层一致性门（4 条）** |
+
+**第 8 项是 0.4.0 加的「迭代接口」，四条机械比对**：
+
+1. `manifest.capabilities[].cli` 的子命令集合 **==** `src/cli.mjs` 的 `case '<name>':` 集合（双向）
+2. `manifest.capabilities[].mcp` 集合 **==** `mcp/server.mjs` 运行时 `tools/list` 返回的工具名（双向）
+3. `AGENT-CONTRACT.md` + `SKILL.md` + `llms.txt` + `README.md` 里提到的每个 `cxa <词>` **都真实存在**
+4. `manifest.pkgVersion` **==** `package.json` 的 `version`
+
+**这四条已经逐条证伪过**（`D:\deep seek工作区3\.cxstudy-tmp\prove-gates.mjs`）：
+往 manifest 写 `coursez`、往 SKILL.md 写 `cxa fakecommand`、版本号漂移，
+各自都能让对应项变红。**加新判据时也要这么做，不然等于没加。**
+
+任一项失败退出码非 0；**空输出算失败**。
 
 ## 已知坑（都实测踩过）
 
@@ -103,8 +132,10 @@ MCP 工具数 / 关键文档 / 配置路径。**任一项失败退出码非 0；
 ## 提交前
 
 ```bash
-node scripts/selftest.mjs   # 8 项全绿
+node scripts/selftest.mjs   # 12 项全绿（含交付层一致性门）
 ```
+
+**改了命令/工具/版本号，`manifest.json` 必须同步**，否则第 8 阶段会红。
 
 提交信息写清「为什么这么改」，不只是改了什么。踩过的坑要写进提交信息——
 下一个人不知道你为什么用 UTC 而不是 TZID。

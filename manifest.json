@@ -1,0 +1,221 @@
+{
+  "$comment": "本文件是「机器可读层」：任何 AI 客户端可以不读 Markdown，直接解析这里拿到能力清单。改命令时**必须同步这里**，否则 scripts/selftest.mjs 的一致性门会红。",
+
+  "schemaVersion": "1",
+  "contractVersion": "1.0.0",
+  "pkgVersion": "0.4.0",
+
+  "entrypoints": {
+    "cli": "cxa",
+    "cliAlias": "cxstudy",
+    "cliFile": "src/cli.mjs",
+    "mcp": "node mcp/server.mjs",
+    "mcpFile": "mcp/server.mjs",
+    "skill": "dsh/skills/cxstudy/SKILL.md",
+    "contract": "AGENT-CONTRACT.md",
+    "llms": "llms.txt",
+    "readme": "README.md"
+  },
+
+  "requirements": {
+    "node": ">=22.0.0",
+    "dependencies": "零第三方依赖",
+    "network": "需要访问 chaoxing.com（无代理时可直连）"
+  },
+
+  "capabilities": [
+    {
+      "id": "auth",
+      "cli": "cxa auth",
+      "mcp": "cx_status",
+      "kind": "setup",
+      "since": "0.1.0",
+      "stability": "stable",
+      "summary": "会话自检 / 登录 / 查看 cookie 状态。任何异常都先跑这个。"
+    },
+    {
+      "id": "courses",
+      "cli": "cxa courses",
+      "mcp": "cx_courses",
+      "kind": "read",
+      "since": "0.1.0",
+      "stability": "stable",
+      "summary": "课程列表（含 courseId / clazzId / cpi，后续命令都要用）。"
+    },
+    {
+      "id": "chapters",
+      "cli": "cxa chapters",
+      "mcp": "cx_chapters",
+      "kind": "read",
+      "since": "0.1.0",
+      "stability": "stable",
+      "summary": "章节与任务点进度。需要浏览器。"
+    },
+    {
+      "id": "exams",
+      "cli": "cxa exams",
+      "mcp": "cx_exams",
+      "kind": "read",
+      "since": "0.1.0",
+      "stability": "stable",
+      "summary": "考试安排（默认只列未结束的，--all 看全部）。"
+    },
+    {
+      "id": "notices",
+      "cli": "cxa notices",
+      "mcp": "cx_notices",
+      "kind": "read",
+      "since": "0.1.0",
+      "stability": "stable",
+      "summary": "通知中心 + 未交作业（--work）。"
+    },
+    {
+      "id": "materials",
+      "cli": "cxa materials",
+      "mcp": "cx_materials",
+      "kind": "read",
+      "since": "0.1.0",
+      "stability": "stable",
+      "summary": "资料区：列 / 递归搜（匹配完整路径）/ 下载到本地。"
+    },
+    {
+      "id": "schedule",
+      "cli": "cxa schedule",
+      "mcp": "cx_schedule",
+      "kind": "read",
+      "since": "0.1.0",
+      "stability": "stable",
+      "summary": "课表：当前周 / 指定周 / 今天 / 明天 + 空闲时段 / 导出 .ics。"
+    },
+    {
+      "id": "plan",
+      "cli": "cxa plan",
+      "mcp": null,
+      "kind": "read",
+      "since": "0.2.0",
+      "stability": "stable",
+      "summary": "未来 N 天：课 + 考试 + 空闲时段合并视图。"
+    },
+    {
+      "id": "brief",
+      "cli": "cxa brief",
+      "mcp": null,
+      "kind": "read",
+      "since": "0.2.0",
+      "stability": "stable",
+      "summary": "一段可以直接粘给 AI 的 Markdown 简报。"
+    },
+    {
+      "id": "exam",
+      "cli": "cxa exam",
+      "mcp": null,
+      "kind": "read",
+      "since": "0.2.0",
+      "stability": "stable",
+      "summary": "备考档案：课件按章归组 + 分级证据（作业/教案/大纲/习题/视频时长）+ 考试倒计时 + 老师通知 + 给 AI 的提示词。"
+    },
+    {
+      "id": "info",
+      "cli": "cxa info",
+      "mcp": null,
+      "kind": "read",
+      "since": "0.3.0",
+      "stability": "stable",
+      "summary": "外部资讯：四六级 / 计算机等级 / 考研 / 考公的官方入口与一般规律；sources 子命令列外部源模板并打印加源提示词。"
+    },
+    {
+      "id": "pan",
+      "cli": "cxa pan",
+      "mcp": null,
+      "kind": "read",
+      "since": "0.3.0",
+      "stability": "beta",
+      "summary": "云盘根目录列表（需 CDP 现取 enc，约 8 秒）。"
+    },
+    {
+      "id": "play",
+      "cli": "cxa play",
+      "mcp": "cx_play",
+      "kind": "write",
+      "since": "0.1.0",
+      "stability": "stable",
+      "summary": "后台静默连播课程视频。会改变平台上的观看进度，跑之前应让用户确认。",
+      "caveat": "真正的记账需要四条件链（studentcourse 跳转 + enc 签名 + 真实浏览器 + 关后台节流），本命令已实现。"
+    },
+    {
+      "id": "check",
+      "cli": "cxa check",
+      "mcp": "cx_gates",
+      "kind": "read",
+      "since": "0.1.0",
+      "stability": "stable",
+      "summary": "5 道判据门（env / auth / target / progress / readonly），红项带 evidence。"
+    },
+    {
+      "id": "notify",
+      "cli": "cxa notify",
+      "mcp": null,
+      "kind": "write",
+      "since": "0.2.0",
+      "stability": "stable",
+      "summary": "推送到手机：企业微信 / 飞书 / 钉钉 / Server酱 / PushPlus。会向外部服务发请求。"
+    },
+    {
+      "id": "mcp",
+      "cli": "cxa mcp",
+      "mcp": null,
+      "kind": "setup",
+      "since": "0.1.0",
+      "stability": "stable",
+      "summary": "启动 MCP server（stdio，newline-delimited JSON-RPC）。"
+    },
+    {
+      "id": "http",
+      "cli": null,
+      "mcp": "cx_http",
+      "kind": "write",
+      "since": "0.1.0",
+      "stability": "beta",
+      "summary": "带登录态发任意学习通请求（万能兜底）。没有对应 CLI 命令，只能通过 MCP 用。"
+    }
+  ],
+
+  "kindMeaning": {
+    "read": "只读，不改变平台状态，可以自行跑",
+    "write": "会改变平台状态或向外部服务发请求，跑之前应告知用户",
+    "setup": "安装/启动类，不影响平台数据"
+  },
+
+  "boundaries": [
+    { "id": "no-fake-progress", "rule": "不伪造任务点完成状态、不伪造学习时长（不构造 multimedia/log 上报）" },
+    { "id": "no-exam-cheating", "rule": "不做考试中的实时答题；考前生成复习材料才是本工具的用途" },
+    { "id": "no-captcha-bypass", "rule": "不绕过验证码、设备指纹、行为风控" },
+    { "id": "no-multi-account", "rule": "只服务使用者自己的账号，不做多账号批量" },
+    { "id": "no-pirated-materials", "rule": "不分发盗版教材、不维护题库服务器" },
+    { "id": "no-invented-focus", "rule": "不编造\"复习重点\"：没有考纲时给分级证据 + 让用户的 AI 结合证据推断" }
+  ],
+
+  "deprecated": [
+    {
+      "from": "cxstudy",
+      "to": "cxa",
+      "since": "0.3.0",
+      "removeAt": null,
+      "note": "CLI 旧别名，两个命令等价，随时可能移除"
+    },
+    {
+      "from": "cxstudy-toolkit",
+      "to": "chaoxing-assistant",
+      "since": "0.3.0",
+      "removeAt": null,
+      "note": "仓库旧名，GitHub 会自动重定向"
+    }
+  ],
+
+  "evolutionRules": {
+    "addCommand": "在 capabilities 加一条（带 since）→ 一致性门自动要求 SKILL.md 也提到它",
+    "renameCommand": "旧名进 deprecated（带 since + removeAt）→ 新旧都能跑 → 门不红",
+    "removeCommand": "必须先 deprecated 至少一个 minor 版本，removeAt 写明删除版本",
+    "breakingChange": "升 contractVersion；必须在 CHANGELOG.md 顶格写明"
+  }
+}

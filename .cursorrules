@@ -1,0 +1,7 @@
+读 AGENT-CONTRACT.md（契约：能力边界、决策树、五个坑、演进规则）。
+
+操作手册：dsh/skills/cxstudy/SKILL.md
+机器可读能力清单：manifest.json
+自包含说明：llms.txt
+
+先跑 `cxa auth status`。90% 的"没数据"是登录态失效。

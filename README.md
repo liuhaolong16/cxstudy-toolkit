@@ -25,7 +25,7 @@
 | 加自己学校的源 | 给模板 + 提示词，让**你的 AI** 去拆解并复刻 | `cxa info sources` |
 | 看云盘 | 根目录列表（需浏览器，约 8 秒） | `cxa pan` |
 
-**14 个命令，10 个 MCP 工具，147 条单测。**
+**16 个命令，10 个 MCP 工具，248 条单测，12 项自检。**
 
 ---
 
@@ -117,11 +117,25 @@ cxa exam --course 有机化学 --out D:\备考
 
 ### 一条边界，写在档案里也写在代码注释里
 
-**这份档案不生成复习重点。**
+**这份档案给的是「分级证据」，不是「复习重点」。**
 
 哪些是重点取决于老师考纲和你自己的掌握程度，程序不知道。一个自称"自动生成复习重点"的工具，在没有考纲时**只能编**——编出来的"重点"会把复习方向带偏，**比没有更糟**。
 
-所以档案末尾附一段**可粘给 AI 的提示词**，里面明确要求：
+但它也不是什么都不做。它把**能核对的事实**按可信度排好：
+
+| 证据 | 为什么可信 | 权重 |
+|---|---|---|
+| **作业章节** | 老师布置作业 = 他觉得这章要练 | 5（有作业+有课件）/ 3（只有作业） |
+| **教案 / 大纲** | 老师讲课的底稿，比 PPT 细得多 | 6 / 5 |
+| **习题 / 练习题** | 直接对标题型 | 4 |
+| **普通课件** | 兜底 | 2 |
+| **视频总时长** | 近似"老师在这章讲了多少" | 参考列，**不改权重** |
+
+**局限也写进档案**：区分度依赖「作业 + 教案 + 视频时长」。一门课只有课件 PDF 时，
+档案会退化成"课件清单"、**排不出优先级** —— 这时它会明说，并给三条替代路径
+（精读教案 / 把习题全做一遍 / 联网查考纲）。
+
+档案末尾附一段**可粘给 AI 的提示词**，里面明确要求：
 
 > 如果信息不够（比如不知道考纲、不知道我哪章最弱），**直接告诉我缺什么，不要编**
 
@@ -291,36 +305,56 @@ node scripts/selftest.mjs    # 全量自检（语法/单测/密钥/命令/MCP/�
 - **不绕过**验证码、设备指纹、行为风控
 - 不做多账号批处理
 - 不维护题库服务器、不分发盗版教材
-- **不生成"复习重点"**——没有考纲时只能编，编出来的会把复习方向带偏
+- **不编造"复习重点"**——没有考纲时只能编，编出来的会把复习方向带偏。给**分级证据**是另一回事（那是可核对的）
 
 ---
 
-## 一个必须提前说清的限制
+## 一个必须提前说清的事情：播放要记账，有四个条件
 
-**用 CLI 播放时视频会真实播放，但平台可能不认账**（任务点不变绿）。
+**`cxa play` 能记账**（2026-11-28 起）。不需要装扩展。
 
-要真的让任务点变绿，需要**浏览器扩展**装在你自己登录过的 Chrome 里：
+记账需要四个条件同时成立：
 
-```bash
-# Windows
-powershell -ExecutionPolicy Bypass -File scripts\install-extension.ps1
-```
+1. **从 `studentcourse` 章节列表点击进入** —— 直接跳 `cards` 不记账
+2. **`enc` 是客户端 MD5 签名**，不是服务端发的
+3. **真实 Chrome profile + cookies**（无痕/临时 profile 的 cookie 不完整）
+4. **关掉后台节流**（否则后台标签页被降频到 1Hz）
 
-原因与实测证据见 [`docs/PROGRESS-FINDINGS.md`](docs/PROGRESS-FINDINGS.md)，扩展原理见 [`docs/EXTENSION.md`](docs/EXTENSION.md)。
+`cxa play` 已实现这四条。**少了任何一条，视频会播但任务点不变绿。**
+
+如果播了仍不涨，按顺序查：`cxa auth status` → `cxa check` → 看四条件缺哪条。
+
+浏览器扩展（`extension/`）是另一条等价路径，**不是唯一路径**。
+原因与实测证据见 [`docs/PROGRESS-FINDINGS.md`](docs/PROGRESS-FINDINGS.md)，
+扩展原理见 [`docs/EXTENSION.md`](docs/EXTENSION.md)。
 
 ---
 
 ## 文档索引
 
+### 交付层（给其他 AI 客户端看，四份互相引用）
+
+| 文档 | 给谁 | 讲什么 |
+|---|---|---|
+| [`AGENT-CONTRACT.md`](AGENT-CONTRACT.md) | **所有 AI** | **契约**：能力边界、决策树、五个必踩的坑、演进规则 |
+| [`manifest.json`](manifest.json) | **机器** | 能力清单（JSON）：命令、MCP 工具、参数、`kind`、弃用、边界 |
+| [`dsh/skills/cxstudy/SKILL.md`](dsh/skills/cxstudy/SKILL.md) | **DSH** | 技能：16 条命令什么时候用、坏了怎么查 |
+| [`llms.txt`](llms.txt) | **任何 AI** | 一页自包含说明：是什么、怎么装、怎么用、边界 |
+
+`CLAUDE.md` / `.cursorrules` / `GEMINI.md` 是三个客户端的导流文件（各一行，指向契约）。
+
+**改了命令必须同步 `manifest.json`**，否则 `node scripts/selftest.mjs` 的一致性门会红。
+
+### 人与开发者
+
 | 文档 | 讲什么 |
 |---|---|
-| [`llms.txt`](llms.txt) | **给 AI 读的**一页说明：是什么、怎么装、怎么用、边界 |
 | [`AGENTS.md`](AGENTS.md) | **给改代码的 Agent**：结构、改动节奏、硬约定、已知坑 |
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | 模块划分与数据流 |
 | [`docs/API.md`](docs/API.md) | 已验证的学习通接口清单 |
 | [`docs/RECON.md`](docs/RECON.md) | 逆向过程记录（怎么找到这些接口的） |
-| [`docs/PROGRESS-FINDINGS.md`](docs/PROGRESS-FINDINGS.md) | 任务点记账机制的实测结论 |
-| [`docs/EXTENSION.md`](docs/EXTENSION.md) | 浏览器扩展原理 |
+| [`docs/PROGRESS-FINDINGS.md`](docs/PROGRESS-FINDINGS.md) | 任务点记账机制的实测结论（四条件链） |
+| [`docs/EXTENSION.md`](docs/EXTENSION.md) | 浏览器扩展原理（另一条等价路径） |
 | [`docs/AI-CLIENT-INTEGRATION.md`](docs/AI-CLIENT-INTEGRATION.md) | 豆包/WorkBuddy/千问接入（带官方来源） |
 | [`docs/EXTERNAL-SOURCES.md`](docs/EXTERNAL-SOURCES.md) | **自己加外部数据源**的方法：模板、判断表、验真四件套 |
 | [`docs/QUIZ-AI-HELP.md`](docs/QUIZ-AI-HELP.md) | 章节测验读图作答的文件协议 |
@@ -350,16 +384,22 @@ src/
   browser/    CDP、播放器、Chrome 定位
   gates/      判据门
   notify/     推送通道（5 个）+ 配置
-  study/      备考档案
+  study/      备考档案（聚合 + 章节识别 + 证据分级）
   paths.mjs   配置目录解析（CXA_HOME）
-  cli.mjs     CLI 入口
-mcp/server.mjs  MCP server（stdio）
+  cli.mjs     CLI 入口（16 个子命令）
+mcp/server.mjs  MCP server（stdio，10 个工具）
 scripts/        独立脚本（自检 / 夹具生成 / 播放器 / 探测）
 test/           单测 + fixtures（真实响应裁剪，不是手写理想 HTML）
 docs/           文档
-extension/      浏览器扩展
+
+# 交付层（给其他 AI 客户端，改命令时必须同步 manifest.json）
+manifest.json       能力清单（机器可读）
+AGENT-CONTRACT.md   契约：边界 / 决策树 / 五个坑 / 演进规则
+llms.txt            一页自包含说明
+CLAUDE.md / .cursorrules / GEMINI.md   三个客户端导流（各一行）
+dsh/skills/cxstudy/SKILL.md            DSH 技能
+extension/      浏览器扩展（另一条记账路径）
 workbuddy/      跨客户端协作模板（验证码/答题）
-dsh/            DSH 技能声明的副本
 ```
 
 **零第三方依赖**——只用 Node 22 自带能力。
@@ -369,15 +409,16 @@ dsh/            DSH 技能声明的副本
 ## 开发
 
 ```bash
-node scripts/selftest.mjs     # 全量自检（改完代码先跑这个）
+node scripts/selftest.mjs     # 全量自检（12 项，改完代码先跑这个）
 node --test test/*.test.mjs   # 只跑单测
 node scripts/scan-secrets.mjs # 只跑密钥扫描
 ```
 
-改代码的规矩见 [`AGENTS.md`](AGENTS.md)。最重要的是两条：
+改代码的规矩见 [`AGENTS.md`](AGENTS.md)。最重要的三条：
 
 1. **夹具必须是真实响应裁剪**，不能手写理想 HTML——那样只能证明"正则匹配我编的结构"
 2. **中文文本只用 edit/write 改**，不要用 PowerShell 回写（会双层破坏）
+3. **改了命令必须同步 `manifest.json`**，否则自检第 8 项（交付层一致性门）会红
 
 ---
 
