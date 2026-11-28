@@ -23,6 +23,7 @@ import { resolveConfig, saveConfig, describeConfig, CONFIG_PATH } from './notify
 import { fetchNoticesPage, fetchAllNotices, pickWorkItems } from './api/notices.mjs';
 import { buildDossier, filterWorksByCourse, filterExamsByCourse } from './study/dossier.mjs';
 import { ALL_EXAMS, schoolEntries, nextOccurrence } from './info/exams.mjs';
+import { listSources, validateSource, buildAddSourcePrompt, SOURCE_TEMPLATE, SOURCE_KINDS } from './info/sources.mjs';
 import { listPanRoot } from './api/pan.mjs';
 import { ChromeSession } from './browser/cdp.mjs';
 import { playKnowledge, inspectKnowledge } from './browser/player.mjs';
@@ -855,6 +856,47 @@ async function cmdInfo() {
     log('');
     log('用法：cxa info <cet|ncre|kaoyan|gongkao|school>');
     log('**注意**：上面的天数按「通常几月考试」推算，不是官方公布的日期。');
+    return 0;
+  }
+
+  // sources：列出范例源 + 给"怎么加新源"的提示词，让用户自己的 AI 复刻
+  if (topic === 'sources') {
+    const sources = listSources();
+    log('内置范例源（不是全集，是"照这个写"的样例）：\n');
+    let bad = 0;
+    for (const s of sources) {
+      const mark = s.validation.ok ? '✓' : '✗';
+      if (!s.validation.ok) bad++;
+      log(`  ${mark} ${s.id.padEnd(16)} [${s.kind}] ${s.name}`);
+      log(`     ${s.url}`);
+      log(`     范围：${s.scope}　验证：${s.verified}`);
+      if (s.note) log(`     注意：${s.note}`);
+      if (!s.validation.ok) for (const e of s.validation.errors) log(`     ✗ ${e}`);
+    }
+    log('');
+    log(`共 ${sources.length} 个，${sources.length - bad} 个通过校验。`);
+    log('');
+    log(`源的类型：${SOURCE_KINDS.join(' / ')}`);
+    log('  官方入口 —— 只给 URL，最稳，改版了链接也还在');
+    log('  接口     —— 能取数据，要验 HTTP 200 + 业务码 + 数据形状');
+    log('  搜索页   —— 给搜索链接，不猜域名（学校域名不统一，猜错会到仿冒站）');
+    log('');
+    log('模板字段（加新源照这个填，六项必填）：');
+    for (const [k, v] of Object.entries(SOURCE_TEMPLATE)) {
+      log(`  ${k.padEnd(11)} ${v || '(空)'}`);
+    }
+    log('');
+    log('─'.repeat(56));
+    log('想把你自己学校的资讯源加进来？把下面这段交给你的 AI：');
+    log('');
+    // 学校名从课表拿，拿不到就让提示词用"我所在的学校"
+    const r = await fetchSchedule(request);
+    let schoolName = null;
+    if (r.ok) {
+      const withCampus = (r.lessons || []).find((l) => l.campus);
+      if (withCampus) schoolName = withCampus.campus;
+    }
+    log(buildAddSourcePrompt(schoolName));
     return 0;
   }
 

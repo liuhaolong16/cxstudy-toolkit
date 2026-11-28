@@ -124,7 +124,9 @@ export const BUILTIN_SOURCES = [
     kind: 'official-entry',
     url: 'http://www.scs.gov.cn/',
     scope: '全国',
-    howFound: '国考官方发布站。',
+    howFound:
+      '国考公告的官方发布站。查证路径：搜索「国家公务员局」→ 认准 gov.cn 域名 → 站内「考试录用」栏目下的公告。' +
+      '另可作为交叉核对：国考公告通常同时被人社部、教育部官网转载。',
     verified: '2026-11-28',
     note: '**实测该站 https 不可用**（fetch failed），故保留 http。这是本仓库唯一允许 http 的地方，理由写在这里。',
   },
@@ -134,9 +136,11 @@ export const BUILTIN_SOURCES = [
     kind: 'official-entry',
     url: 'http://www.cpta.com.cn/',
     scope: '全国',
-    howFound: '各省人事考试的汇总入口。',
+    howFound:
+      '人力资源和社会保障部下属的考试机构站点，各省人事考试的汇总入口。' +
+      '查证路径：搜索「中国人事考试网」→ 认准 cpta.com.cn → 站内「考试计划」栏目看本年度安排。',
     verified: '2026-11-28',
-    note: '同样实测 https 不可用，保留 http。',
+    note: '同样实测 https 不可用，保留 http。省考的具体报名时间要看各省自己的考试网，这个站只是入口。',
   },
 ];
 
