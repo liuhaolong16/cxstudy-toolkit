@@ -30,6 +30,7 @@ import { aggregateVideoMinutes } from './study/exam-focus.mjs';
 import { ChromeSession } from './browser/cdp.mjs';
 import { playKnowledge, inspectKnowledge } from './browser/player.mjs';
 import { runGates, summarize } from './gates/index.mjs';
+import { auditAll, renderAuditReport } from './audit/rules.mjs';
 
 const argv = process.argv.slice(2);
 
@@ -84,6 +85,7 @@ const USAGE = `
       --download <目录>
   cxa play --cid <id> --clz <id>          后台连播视频（题目/文档跳过）
   cxa check [--cid --clz]                 跑判据门
+  cxa audit [--json] [--fix]              交付面审计：文档数字/清单/过时结论 vs 实现
   cxa mcp                                 以 MCP server 方式运行（stdio）
 
 play 选项：
@@ -95,8 +97,14 @@ play 选项：
   --cpi <id>        personId / cpi，通常可从 courses 输出里拿到
 
 重要：
-  CLI 播放（headless 或有头）会让视频真实播放，但平台**不认账**：
-  任务点不会变成已完成，因为浏览器里缺少平台下发的课程级 cookie。
+  CLI 播放会让视频真实播放，能否记账取决于四个条件是否同时成立：
+    ① 从 studentcourse 章节列表点击进入（带对 enc）
+    ② enc 是客户端 MD5 签名（不是服务端发的）
+    ③ 真实 Chrome profile + cookies
+    ④ 关掉后台节流
+  四条齐了任务点才会变绿；缺一条视频照样播但任务点不绿。
+  cxa play 已实现这四条；extension/ 浏览器扩展是另一条等价路径。
+  如果播了不涨，按顺序查：cxa auth status → cxa check → 看四条件缺哪条。
 
   要真的让任务点变绿，请用浏览器扩展（extension/ 目录）：
       powershell -ExecutionPolicy Bypass -File scripts\install-extension.ps1
@@ -1304,6 +1312,137 @@ async function cmdPlay() {
   }
 }
 
+/**
+ * 交付面审计：文档说的 vs 实际做的。
+ *
+ * ## 与 `cxa check` 的分工
+ *
+ * `cxa check` 查**运行时环境**（登录态、目标课程、能否连上）。
+ * `cxa audit` 查**仓库自身自洽性**（文档数字、清单、过时结论）。
+ * 一个问"我现在能不能用"，一个问"我对外说的对不对"。
+ *
+ * ## 为什么不默认跑测试
+ *
+ * `unitTests` / `selftestItems` 这两个数字要真跑才能得，约 30 秒。
+ * 默认快速审计（秒级），慢项显形为 `skip`（不是 pass）。
+ * 要全量：`cxa audit --with-tests`。
+ *
+ * ## `--fix` 的诚实边界
+ *
+ * **只自动修「有唯一正确答案」的**：`manifest.pkgVersion` ↔ `package.json.version`
+ * （以 package.json 为准，那是 npm 的权威源）。
+ *
+ * 数字写错、缺条目、过时结论**都不自动改** —— 它们要人判断该怎么写。
+ * 自动改文案只会把错误改得更隐蔽。
+ */
+async function cmdAudit() {
+  const cwd = process.cwd();
+  const readIf = (rel) => {
+    const p = path.join(cwd, rel);
+    return fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : null;
+  };
+
+  /* ---- 1. 收集"对外说的话"：五份文档 + 源码里的 USAGE ---- */
+  const DOC_FILES = [
+    'AGENT-CONTRACT.md',
+    'dsh/skills/cxstudy/SKILL.md',
+    'llms.txt',
+    'README.md',
+    'DISCLAIMER.md',
+  ];
+  const docs = [];
+  for (const f of DOC_FILES) {
+    const text = readIf(f);
+    if (text) docs.push({ file: f, text });
+  }
+  // USAGE 也是给用户看的话，而且历史上它残留过过时结论（"平台不认账"）。
+  // 只扫源码文件的 USAGE 片段，不扫整个 .mjs（里面全是内部注释，会误报）。
+  const cliSrc = readIf('src/cli.mjs') || '';
+  const usageMatch = cliSrc.match(/const USAGE = `([\s\S]*?)`;/);
+  if (usageMatch) docs.push({ file: 'src/cli.mjs (USAGE)', text: usageMatch[1] });
+
+  /* ---- 2. 抽实现侧的事实 ---- */
+  const cliCases = [...new Set([...cliSrc.matchAll(/case\s+'([a-z][a-z0-9-]*)'\s*:/g)].map((m) => m[1]))].sort();
+
+  const mcpSrc = readIf('mcp/server.mjs') || '';
+  // 工具名在 server.mjs 里是**不带引号的对象 key**（`cx_status: {`），
+  // 不是字符串字面量。所以匹配 `cx_xxx:` 而不是 `'cx_xxx'`。
+  // 文件头注释里有 `cx_status    会话自检`（无冒号），不会误抓。
+  const mcpTools = [...new Set([...mcpSrc.matchAll(/\b(cx_[a-z]+)\s*:/g)].map((m) => m[1]))].sort();
+
+  let manifest = null;
+  try {
+    manifest = JSON.parse(readIf('manifest.json') || 'null');
+  } catch (e) {
+    log(`✗ manifest.json 解析失败：${e.message}`);
+    return 1;
+  }
+  if (!manifest) {
+    log('✗ 找不到 manifest.json');
+    return 1;
+  }
+
+  const actual = { cliCommands: cliCases.length, mcpTools: mcpTools.length };
+
+  /* ---- 3. 可选：跑测试拿真实条数 ---- */
+  if (has('with-tests')) {
+    log('  跑单测（约 30 秒）…');
+    const { spawnSync } = await import('node:child_process');
+    const testFiles = fs.readdirSync(path.join(cwd, 'test')).filter((f) => f.endsWith('.test.mjs'));
+    const r = spawnSync(process.execPath, ['--test', ...testFiles.map((f) => `test/${f}`)], {
+      cwd,
+      encoding: 'utf8',
+      timeout: 300_000,
+    });
+    const m = ((r.stdout || '') + (r.stderr || '')).match(/# pass (\d+)/);
+    if (m) actual.unitTests = Number(m[1]);
+  }
+
+  /* ---- 4. 跑审计 ---- */
+  const pkg = JSON.parse(readIf('package.json') || '{}');
+  const audit = auditAll({ docs, manifest, cliCases, mcpTools, actual, pkgVersion: pkg.version });
+
+  /* ---- 5. --fix：只修能唯一确定的 ---- */
+  if (has('fix')) {
+    let fixed = 0;
+    if (pkg.version && manifest.pkgVersion !== pkg.version) {
+      const beforeVer = manifest.pkgVersion;
+      manifest.pkgVersion = pkg.version;
+      fs.writeFileSync(path.join(cwd, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n', 'utf8');
+      log(`  ✓ 已修：manifest.pkgVersion ${beforeVer} → ${pkg.version}（跟 package.json 对齐）`);
+      fixed++;
+    }
+    if (!fixed) log('  （没有可自动修的项目）');
+    const unautofixable = audit.groups
+      .flatMap((g) => g.results)
+      .filter((r) => r.verdict === 'fail' && !r.fixable);
+    if (unautofixable.length) {
+      log('');
+      log(`  还有 ${unautofixable.length} 项**不能自动修**，需要人判断怎么写：`);
+      for (const f of unautofixable) log(`    - ${f.label}：${f.detail}`);
+    }
+  }
+
+  /* ---- 6. 输出 ---- */
+  if (has('json')) {
+    log(JSON.stringify({ ok: audit.fail === 0, ...audit }, null, 2));
+  } else {
+    log('');
+    log(renderAuditReport(audit, { title: '交付面审计 · 超星学习通小助手' }));
+    log('');
+    if (audit.fail === 0) {
+      log(`✓ 交付面自洽（通过 ${audit.pass}，跳过 ${audit.skip}${audit.skip ? '：跳过的判不了，不算通过' : ''}）`);
+    } else {
+      log(`✗ ${audit.fail} 项失败 —— 文档和实现对不上，用户会按错的预期去用`);
+      log('');
+      log('  能自动修的：cxa audit --fix');
+      log('  修不了的，逐条改文档或改实现（改哪边取决于哪边是事实源）');
+    }
+  }
+
+  return audit.fail === 0 ? 0 : 1;
+}
+
 async function cmdCheck() {
   const courseId = num('cid');
   const classId = num('clz');
@@ -1394,6 +1533,8 @@ async function main() {
       return cmdPlay();
     case 'check':
       return cmdCheck();
+    case 'audit':
+      return cmdAudit();
     case 'mcp': {
       await import('../mcp/server.mjs');
       return null; // mcp server 自己接管进程

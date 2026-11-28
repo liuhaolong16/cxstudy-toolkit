@@ -95,7 +95,7 @@ record('USAGE 有命令', declared.length > 0, `${declared.length} 个：${decla
 
 // 每个命令用一个不可能成功的调用探一下：能进到命令自己的逻辑（而不是落到 default 分支打印 USAGE）
 // 就能证明路由接上了。用 --help 这类不存在的参数不会触发网络。
-const KNOWN_HANDLERS = new Set(['auth', 'courses', 'chapters', 'exams', 'schedule', 'plan', 'brief', 'notify', 'notices', 'exam', 'info', 'pan', 'materials', 'play', 'check', 'mcp']);
+const KNOWN_HANDLERS = new Set(['auth', 'courses', 'chapters', 'exams', 'schedule', 'plan', 'brief', 'notify', 'notices', 'exam', 'info', 'pan', 'materials', 'play', 'check', 'audit', 'mcp']);
 const missingRoute = declared.filter((c) => !KNOWN_HANDLERS.has(c));
 record('命令都有处理器', missingRoute.length === 0, missingRoute.length ? `未接路由：${missingRoute.join(', ')}` : '全部接上');
 
@@ -244,6 +244,52 @@ const manifestCli = [
     manifest.pkgVersion === pkg.version
       ? `package.json 与 manifest 都是 ${pkg.version}`
       : `漂移了：package.json=${pkg.version}，manifest=${manifest.pkgVersion}`,
+  );
+}
+
+// (8e) 交付面审计：文档里的**数字**、清单、过时结论
+//
+// 与 `cxa audit` 用同一套纯函数（src/audit/rules.mjs），区别是这里能填真实数字
+// （单测条数与自检项数在本进程里本来就有），所以不会 skip。
+{
+  const DOC_FILES = ['AGENT-CONTRACT.md', 'dsh/skills/cxstudy/SKILL.md', 'llms.txt', 'README.md', 'DISCLAIMER.md'];
+  const docs = [];
+  for (const f of DOC_FILES) {
+    const p = path.join(ROOT, f);
+    if (fs.existsSync(p)) docs.push({ file: f, text: fs.readFileSync(p, 'utf8') });
+  }
+  // USAGE 也是对外说的话
+  const usagePart = cliSrc.match(/const USAGE = `([\s\S]*?)`;/);
+  if (usagePart) docs.push({ file: 'src/cli.mjs (USAGE)', text: usagePart[1] });
+
+  const mcpSrc2 = fs.readFileSync(path.join(ROOT, 'mcp/server.mjs'), 'utf8');
+  const mcpToolNames = [...new Set([...mcpSrc2.matchAll(/\b(cx_[a-z]+)\s*:/g)].map((m) => m[1]))];
+
+  // Windows 上 `D:\...` 不是合法 ESM URL，必须转 file://
+  const { pathToFileURL } = await import('node:url');
+  const { auditAll } = await import(pathToFileURL(path.join(ROOT, 'src/audit/rules.mjs')).href);
+  const pkgVersion = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).version;
+  const a = auditAll({
+    docs,
+    manifest,
+    cliCases,
+    mcpTools: mcpToolNames,
+    pkgVersion,
+    actual: {
+      cliCommands: cliCases.length,
+      mcpTools: mcpToolNames.length,
+      unitTests: passN, // 第 2 阶段真跑出来的
+      selftestItems: results.length + 1, // +1 是正在记的这一条
+    },
+  });
+
+  const failedItems = a.groups.flatMap((g) => g.results).filter((r) => r.verdict === 'fail');
+  record(
+    '交付面审计',
+    failedItems.length === 0,
+    failedItems.length
+      ? failedItems.map((f) => `${f.label}：${f.detail}`).join(' / ')
+      : `通过 ${a.pass}，跳过 ${a.skip}${a.skip ? '（跳过的不算通过）' : ''}`,
   );
 }
 

@@ -65,6 +65,7 @@ AI 能直接用的结构化材料；能后台播放视频过任务点；能按�
 | "四六级 / 考研怎么准备" | `cxa info` | `cxa info sources` | 给官方入口 + 一般规律，不猜具体院校政策 |
 | "帮我推到微信" | `cxa notify channels` | `cxa notify set --channel --key` | **`kind=write`，先问用户** |
 | "这东西坏了" | `cxa check` | 看哪道门红 | 红项带 `evidence`，照它修 |
+| **改完代码要验收 / 怀疑文档过时** | **`cxa audit`** | **`cxa audit --fix`** | **查的是仓库自洽性，与 `check` 互补** |
 
 **判断不了该跑哪个**：先 `cxa auth status` + `cxa courses`，拿到真实数据再决定。**不要瞎猜课程名**。
 
@@ -78,7 +79,7 @@ AI 能直接用的结构化材料；能后台播放视频过任务点；能按�
 | **MCP** | 客户端支持 MCP（Claude Code / Cursor / WorkBuddy / 千问桌面端） | `node mcp/server.mjs`（stdio） |
 | **文件协议** | 客户端只能读写文件 | `.captcha-tmp/`、`.cxstudy-questions/` 里的 JSON |
 
-**MCP 只有 10 个工具，CLI 有 16 个命令**。差异见 `manifest.json` 的 `capabilities[]`
+**MCP 只有 10 个工具，CLI 有 17 个命令**。差异见 `manifest.json` 的 `capabilities[]`
 （`cli` / `mcp` 字段哪个是 `null` 就是没这个入口）。
 
 ---

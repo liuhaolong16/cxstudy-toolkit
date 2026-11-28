@@ -2,8 +2,8 @@
   "$comment": "本文件是「机器可读层」：任何 AI 客户端可以不读 Markdown，直接解析这里拿到能力清单。改命令时**必须同步这里**，否则 scripts/selftest.mjs 的一致性门会红。",
 
   "schemaVersion": "1",
-  "contractVersion": "1.0.0",
-  "pkgVersion": "0.4.0",
+  "contractVersion": "1.1.0",
+  "pkgVersion": "0.5.0",
 
   "entrypoints": {
     "cli": "cxa",
@@ -149,7 +149,16 @@
       "kind": "read",
       "since": "0.1.0",
       "stability": "stable",
-      "summary": "5 道判据门（env / auth / target / progress / readonly），红项带 evidence。"
+      "summary": "5 道判据门（env / auth / target / reachable / progress），红项带 evidence。查的是**运行时环境**。"
+    },
+    {
+      "id": "audit",
+      "cli": "cxa audit",
+      "mcp": null,
+      "kind": "read",
+      "since": "0.5.0",
+      "stability": "stable",
+      "summary": "交付面审计：文档里的数字 / 清单 / 过时结论 vs 实现。查的是**仓库自洽性**，与 check 互补。`--fix` 只修能唯一确定的（版本号同步），其余显形要求人改。"
     },
     {
       "id": "notify",

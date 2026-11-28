@@ -29,7 +29,7 @@ cxa courses          # 输出 courseId / clazzId / cpi —— 后面几乎所有
 
 ---
 
-## 二、16 条命令，按场景分
+## 二、17 条命令，按场景分
 
 ### 查数据（只读，直接跑）
 
@@ -83,10 +83,14 @@ cxa exam --course <课程名> [--out <目录>] [--json] [--no-video]
 
 | 命令 | 做什么 |
 |---|---|
-| `cxa check` | 5 道判据门（env/auth/target/progress/readonly），红项带 `evidence` |
+| `cxa check` | 5 道判据门（env/auth/target/reachable/progress），红项带 `evidence`。**查运行时环境** |
+| `cxa audit` | **交付面审计**：文档里的数字/清单/过时结论 vs 实现。**查仓库自洽性**。`--fix` 只修能唯一确定的（版本号同步） |
 | `cxa info` | 四六级 / 计算机等级 / 考研 / 考公的官方入口与一般规律 |
 | `cxa info sources` | 列外部源模板 + 打印"加自己的源"的提示词 |
 | `cxa --version` | 版本 |
+
+**`check` 和 `audit` 的分工**：一个问「我现在能不能用」，一个问「我对外说的对不对」。
+改完代码跑 `audit`；用之前有问题跑 `check`。
 
 ---
 
@@ -189,7 +193,7 @@ cxa exam --course <课程名> [--out <目录>] [--json] [--no-video]
 本项目的入口有四种，按你的环境选：
 
 - **支持 MCP**（Claude Code / Cursor / WorkBuddy / 千问桌面端）→ `node mcp/server.mjs`（10 个工具）
-- **有 shell** → `cxa <子命令> --json`（16 个命令，`--json` 出机器可读）
+- **有 shell** → `cxa <子命令> --json`（17 个命令，`--json` 出机器可读）
 - **只能读写文件** → `.captcha-tmp/`、`.cxstudy-questions/` 里的 JSON
 - **只能读文档** → `llms.txt`（一份自包含的完整说明）
 
