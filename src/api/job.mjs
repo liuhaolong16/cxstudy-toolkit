@@ -31,7 +31,21 @@ const NUM_CANDIDATES = ['0', '1', '2', '3', '4', '5', '6'];
  * 正则用非贪婪到第一个 `};`，并对解析结果做合法性校验——
  * 解析不出来就返回空，让调用方降级到浏览器路径，不抛错。
  */
-export function parseCards(html) {
+/**
+ * 解析 cards 页里的 mArg JSON。
+ *
+ * @param {string} html
+ * @param {{includePassed?: boolean}} [opts]
+ *   `includePassed` 默认 false —— 原来的语义是「**筛出待完成任务点**」，
+ *   已通过的（`isPassed === true`）跳过，这是对的，别改。
+ *
+ *   但有两个用途需要**全部**任务点：算视频总时长、算章节教学量。
+ *   这些场景下已通过的视频同样重要（看过的也是老师讲过的）。
+ *   实测踩过这个坑：`attDuration` 明明在原始响应里，
+ *   却因为 `isPassed: true` 被跳过，导致"23 章只解析出 5 个作业、0 个视频"。
+ */
+export function parseCards(html, opts) {
+  const includePassed = !!(opts && opts.includePassed);
   const text = String(html || '');
   if (text.includes('章节未开放')) {
     return { notOpen: true, jobs: [], meta: null, reason: '章节未开放' };
@@ -66,8 +80,8 @@ export function parseCards(html) {
   const attachments = Array.isArray(data.attachments) ? data.attachments : [];
   const jobs = [];
   for (const card of attachments) {
-    // 已通过的跳过
-    if (card.isPassed === true) continue;
+    // 已通过的跳过 —— 但 includePassed 时要保留（算教学量需要）
+    if (!includePassed && card.isPassed === true) continue;
 
     // 没有 job 字段的多半是阅读类（job 为空但 type=read）。
     // 注意：只是「可能」是阅读类——document / video 也可能没有 job 字段，
@@ -182,7 +196,7 @@ function toReadJob(card) {
  *
  * @returns {Promise<{jobs: Array, meta: object|null, notOpen: boolean}>}
  */
-export async function fetchJobs({ courseId, clazzId, cpi, knowledgeId }) {
+export async function fetchJobs({ courseId, clazzId, cpi, knowledgeId, includePassed = false }) {
   if (!courseId || !clazzId || !knowledgeId) {
     throw new Error('fetchJobs 需要 courseId / clazzId / knowledgeId');
   }
@@ -214,7 +228,7 @@ export async function fetchJobs({ courseId, clazzId, cpi, knowledgeId }) {
       return { jobs: all, meta, notOpen: false, error: '登录态失效' };
     }
 
-    const parsed = parseCards(res.text || '');
+    const parsed = parseCards(res.text || '', { includePassed });
     if (parsed.notOpen) {
       notOpen = true;
       break;

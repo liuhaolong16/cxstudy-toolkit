@@ -15,6 +15,8 @@ import {
   MATERIAL_KINDS,
   classifyMaterial,
   groupMaterialsByValue,
+  aggregateVideoMinutes,
+  fmtDuration,
   buildFocusEvidence,
   renderFocusEvidence,
   buildFocusPrompt,
@@ -196,6 +198,74 @@ test('renderFocusEvidence：提醒份数不代表重要性（资料区有多版�
   const md = renderFocusEvidence({ courseName: 'X', evidence: ev, materialsCount: 10, worksCount: 1 });
   assert.ok(md.includes('份数不代表重要性'), '实测有 教案PDF/课件PDF/课件PDF版 三个并列目录，会重复计数');
   assert.ok(md.includes('课件PDF版') || md.includes('多个版本'), '要说明是版本重复');
+});
+
+/* ------------------------------------------------------------------ */
+/* 视频时长（替代「课时」的可用信号）                                  */
+/* ------------------------------------------------------------------ */
+
+test('aggregateVideoMinutes：按章累加 attDuration', () => {
+  const m = aggregateVideoMinutes([
+    { type: 'video', name: '9.1醛和酮的基础知识.mp4', attDuration: 435 },
+    { type: 'video', name: '9.2羰基的亲核加成反应.mp4', attDuration: 600 },
+    { type: 'video', name: '10.1羧酸基础.mp4', attDuration: 300 },
+  ]);
+  assert.equal(m.get(9).seconds, 1035);
+  assert.equal(m.get(9).videos.length, 2);
+  assert.equal(m.get(10).seconds, 300);
+});
+
+test('aggregateVideoMinutes：非视频类型不参与', () => {
+  const m = aggregateVideoMinutes([
+    { type: 'workid', name: '第九章 作业', attDuration: 999 },
+    { type: 'document', name: '9.1 讲义.pdf', attDuration: 888 },
+  ]);
+  assert.equal(m.size, 0);
+});
+
+test('aggregateVideoMinutes：已通过的视频也要算（includePassed 的用途）', () => {
+  // 实测踩过：视频看完后 isPassed=true，默认被 fetchJobs 过滤掉，
+  // 导致"23 章 0 个视频"。算教学量必须包含已通过的。
+  const m = aggregateVideoMinutes([
+    { type: 'video', name: '9.1 a.mp4', attDuration: 100, isPassed: true },
+    { type: 'video', name: '9.2 b.mp4', attDuration: 200, isPassed: false },
+  ]);
+  assert.equal(m.get(9).seconds, 300);
+});
+
+test('aggregateVideoMinutes：attDuration 非法时跳过（不产生 NaN）', () => {
+  const m = aggregateVideoMinutes([
+    { type: 'video', name: '9.1 a.mp4', attDuration: '' },
+    { type: 'video', name: '9.2 b.mp4', attDuration: 0 },
+    { type: 'video', name: '9.3 c.mp4', attDuration: -5 },
+    { type: 'video', name: '9.4 d.mp4', attDuration: 'abc' },
+  ]);
+  assert.equal(m.size, 0, '四类非法值都不该产生条目');
+});
+
+test('aggregateVideoMinutes：视频名认不出章号时跳过（不瞎归组）', () => {
+  const m = aggregateVideoMinutes([{ type: 'video', name: '导论.mp4', attDuration: 300 }]);
+  assert.equal(m.size, 0);
+});
+
+test('fmtDuration：秒/分/小时三档', () => {
+  assert.equal(fmtDuration(45), '45 秒');
+  assert.equal(fmtDuration(60), '1 分');
+  assert.equal(fmtDuration(435), '7 分');
+  assert.equal(fmtDuration(3599), '59 分');
+  assert.equal(fmtDuration(3600), '1 小时 0 分');
+  assert.equal(fmtDuration(4580), '1 小时 16 分');
+  assert.equal(fmtDuration(0), '0 秒');
+});
+
+test('renderFocusEvidence：有视频时长时表格多一列，并说明它不等于学时', () => {
+  const vm = new Map([[9, { seconds: 4580, videos: ['9.1 a.mp4'] }]]);
+  const ev = buildFocusEvidence([{ name: '第九章 A.pdf' }], [], vm);
+  const md = renderFocusEvidence({ courseName: '有机化学', evidence: ev, materialsCount: 1, worksCount: 0 });
+  assert.ok(md.includes('视频时长'), '列名要出现');
+  assert.ok(md.includes('1 小时 16 分'), '时长要格式化');
+  assert.ok(md.includes('不等于教学计划里的学时'), '必须说清它不等于学时');
+  assert.ok(md.includes('不参与上面的信号分级'), '必须说清它不改权重');
 });
 
 /* ------------------------------------------------------------------ */

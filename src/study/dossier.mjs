@@ -82,7 +82,7 @@ export function groupMaterialsByTopic(items) {
  * @returns {string} Markdown
  */
 export function buildDossier(input) {
-  const { course, materials = [], exams = [], works = [], notices = [], meta = null, degraded = [] } = input;
+  const { course, materials = [], exams = [], works = [], notices = [], meta = null, degraded = [], videoMinutes = null } = input;
   const now = new Date();
   const lines = [];
 
@@ -179,7 +179,7 @@ export function buildDossier(input) {
   //
   // 立场：作业章节是强信号，教案/大纲/习题是高价值资料；把证据摊开交给带联网能力的 AI，
   // 让它结合考纲推断，而不是我们自己拍一个"重点"出来。
-  const focusEvidence = buildFocusEvidence(materials, works);
+  const focusEvidence = buildFocusEvidence(materials, works, videoMinutes);
   if (focusEvidence.chapters.length) {
     lines.push(renderFocusEvidence({
       courseName: course.name,

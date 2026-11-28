@@ -791,6 +791,10 @@ async function collectVideoMinutes(course, degradedCtx) {
           clazzId: course.clazzId,
           cpi: course.personId || course.cpi,
           knowledgeId: c.knowledgeId,
+          // **关键**：要算教学量，就必须包含已通过的视频。
+          // 实测踩过：attDuration 明明在原始响应里，却因 `isPassed: true`
+          // 被 fetchJobs 默认过滤掉，导致"23 章只解析出 5 个作业、0 个视频"。
+          includePassed: true,
         }).catch(() => ({ jobs: [] })),
       ),
     );
