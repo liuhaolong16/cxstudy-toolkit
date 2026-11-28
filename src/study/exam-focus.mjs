@@ -153,7 +153,9 @@ export function buildFocusEvidence(materials, works) {
   };
 
   for (const m of materials) {
-    const ch = guessChapterNo(m.name);
+    // 传 path 让目录名有机会优先 —— 独立测试实测出 `chapt11- 醛和酮.pdf` 按文件名
+    // 会归到第 11 章（醛酮是第 9 章内容），按目录 `第9章/` 才对。
+    const ch = guessChapterNo(m.name, m.path || m.dir);
     if (ch == null) continue;
     ensure(ch).materialNames.push(m.name);
   }

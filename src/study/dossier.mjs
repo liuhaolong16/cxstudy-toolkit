@@ -42,8 +42,9 @@ export { guessChapterNo, cnToNum } from './chapter.mjs';
 /** 按章节号排序；没章节号的排后面（按文件名） */
 export function sortMaterialsByChapter(items) {
   return [...items].sort((a, b) => {
-    const ca = guessChapterNo(a.name);
-    const cb = guessChapterNo(b.name);
+    // 传 path：目录名比文件名可信（见 chapter.mjs 的说明）
+    const ca = guessChapterNo(a.name, a.path || a.dir);
+    const cb = guessChapterNo(b.name, b.path || b.dir);
     if (ca != null && cb != null) return ca - cb || String(a.name).localeCompare(String(b.name), 'zh');
     if (ca != null) return -1;
     if (cb != null) return 1;
@@ -55,7 +56,7 @@ export function sortMaterialsByChapter(items) {
 export function groupMaterialsByTopic(items) {
   const groups = new Map();
   for (const it of items) {
-    const ch = guessChapterNo(it.name);
+    const ch = guessChapterNo(it.name, it.path || it.dir);
     const key = ch != null ? `第 ${ch} 章` : '未编号';
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(it);
@@ -221,7 +222,7 @@ export function buildDossier(input) {
   lines.push('1. **先看考试**：如果上面有考试和倒计时，先按剩余天数决定投入。');
   // 章号不一定是连续的（这门课就从第 0 章跳到第 2 章），所以说"从第 1 章"是错的。
   // 用实际最小章号，并提醒可能有跳号。
-  const chapterNos = materials.map((m) => guessChapterNo(m.name)).filter((n) => n != null).sort((a, b) => a - b);
+  const chapterNos = materials.map((m) => guessChapterNo(m.name, m.path || m.dir)).filter((n) => n != null).sort((a, b) => a - b);
   if (chapterNos.length) {
     const first = chapterNos[0];
     const gaps = [];
@@ -317,7 +318,7 @@ export function extractChaptersFromWorks(works) {
 export function chapterCoverage(materials, works) {
   const matChapters = new Set();
   for (const m of materials) {
-    const c = guessChapterNo(m.name);
+    const c = guessChapterNo(m.name, m.path || m.dir);
     if (c != null) matChapters.add(c);
   }
   const { chapters: workChapters, byChapter } = extractChaptersFromWorks(works);

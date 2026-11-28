@@ -28,9 +28,44 @@ export function cnToNum(s) {
  *   "9.4醛酮的氧化.pdf"                点号
  *   "第四节气相色谱法..."              中文数字 + 节
  *   "第四章 紫外可见吸收光谱法.pdf"     中文数字 + 章
+ *
+ * ## 第二个参数 dirHint（2026-11-28 加）
+ *
+ * 独立测试实测出两类错配，都是**只看文件名**导致的：
+ *
+ * | 文件 | 只按文件名 → | 实际 |
+ * |---|---|---|
+ * | `chapt11- 醛和酮 新.pdf` | 第 11 章 | 醛酮是**第 9 章**内容 |
+ * | `12 羧酸.pdf` | 第 12 章 | 羧酸是**第 10 章**内容 |
+ *
+ * 这两个文件是旧版教材残留，文件名前缀和本校章节体系对不上。
+ * 如果老师把它们放在 `第9章/` 这样的目录里，**目录名比文件名可信**。
+ *
+ * 所以：**目录名能认出章号时优先用目录名**；认不出（如 `课件PDF/`）才退回文件名。
+ *
+ * @param {string} name 文件名
+ * @param {string} [dirHint] 所在目录名或完整相对路径（含 `/` 也行，取最后一段目录）
  */
-export function guessChapterNo(name) {
-  const s = String(name || '').replace(/\.[a-z0-9]+$/i, '');
+export function guessChapterNo(name, dirHint) {
+  // 目录名优先：老师把文件放对目录时，目录比文件名可信
+  if (dirHint) {
+    const dirs = String(dirHint).split('/').slice(0, -1).filter(Boolean);
+    // 从最深层目录往上找，第一个能认出章号的就用它
+    for (let i = dirs.length - 1; i >= 0; i--) {
+      const fromDir = parseChapter(dirs[i]);
+      if (fromDir != null) return fromDir;
+    }
+  }
+  return parseChapter(name);
+}
+
+/**
+ * 从单个字符串里解析章号（不含目录处理逻辑）。
+ *
+ * 抽出来是因为 `guessChapterNo` 要对「每个目录层」重复调它。
+ */
+function parseChapter(input) {
+  const s = String(input || '').replace(/\.[a-z0-9]+$/i, '');
   // chapter 17 / chapt11 / ch11
   let m = s.match(/(?:chapter|chapt|ch)[\s._-]*(\d+)/i);
   if (m) return Number(m[1]);
