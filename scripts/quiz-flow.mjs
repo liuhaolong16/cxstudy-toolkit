@@ -78,12 +78,41 @@ function probeJson(expr) {
   throw new Error('解析结果失败: ' + raw.slice(0, 300));
 }
 
-function screenshot(outPath) {
-  execFileSync(
-    process.execPath,
-    [path.join(ROOT, 'scripts', 'cdp-probe.mjs'), '--port', String(PORT), '--viewport', '1920x1080', '--screenshot', outPath],
-    { encoding: 'utf8', maxBuffer: 20 * 1024 * 1024, timeout: 120_000 },
-  );
+function screenshot(outPath, clip) {
+  const args = [path.join(ROOT, 'scripts', 'cdp-probe.mjs'), '--port', String(PORT), '--viewport', '1920x1080', '--screenshot', outPath];
+  if (clip) args.push('--clip', `${clip.x},${clip.y},${clip.w},${clip.h}`, '--beyond');
+  execFileSync(process.execPath, args, { encoding: 'utf8', maxBuffer: 20 * 1024 * 1024, timeout: 120_000 });
+}
+
+/**
+ * 算所有题目的包围盒（页面坐标）。
+ *
+ * 章节测验一页 10 题，高可达 3000px+，一屏（1080）装不下。原版只截一屏，
+ * 所以 AI 只能看到前 3-4 题。现在按全部题的 boundingRect 算一个大 clip，
+ * 配 captureBeyondViewport 一次截全 —— 比「滚动 + 拼接」简单且不会错位。
+ */
+function quizClipRect(questions) {
+  if (!questions.length) return null;
+  let top = Infinity;
+  let bottom = -Infinity;
+  let left = Infinity;
+  let right = -Infinity;
+  for (const q of questions) {
+    const r = q.rect;
+    if (!r) continue;
+    top = Math.min(top, r.y);
+    bottom = Math.max(bottom, r.y + r.h);
+    left = Math.min(left, r.x);
+    right = Math.max(right, r.x + r.w);
+  }
+  if (!Number.isFinite(top) || bottom <= top) return null;
+  const pad = 20;
+  return {
+    x: Math.max(0, left - pad),
+    y: Math.max(0, top - pad),
+    w: right - left + pad * 2,
+    h: bottom - top + pad * 2,
+  };
 }
 
 /* ---------------- 主流程 ---------------- */
@@ -104,10 +133,15 @@ async function main() {
   }
   log(`共 ${questions.length} 题`);
 
-  // 2) 整页截图
+  // 2) 截全所有题（一屏装不下 10 题，按包围盒一次截全）
   const shotPath = path.join(WORK_DIR, 'page.png');
-  log('整页截图…');
-  screenshot(shotPath);
+  const clip = quizClipRect(questions);
+  if (clip) {
+    log(`题目包围盒 ${clip.w}×${clip.h}（一屏 1920×1080 装不下，按包围盒截全）…`);
+  } else {
+    log('算不出题目包围盒，退回整屏截图…');
+  }
+  screenshot(shotPath, clip);
   const shotSize = fs.existsSync(shotPath) ? fs.statSync(shotPath).size : 0;
   log(`截图 ${shotSize} bytes：${shotPath}`);
 

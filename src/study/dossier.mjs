@@ -33,48 +33,11 @@ function fmtDate(d, withTime = false) {
  * 从课件文件名里猜章节号，用于排序。
  * 真实数据形如 "chapter 17 杂环化合物.pdf" / "9.4醛酮的氧化.pdf" / "10.5 酯和酰胺的反应.pdf"。
  */
-/** 中文数字 → 阿拉伯数字。课件文件名里「第四节」这种写法很常见。 */
-export function cnToNum(s) {
-  if (/^\d+$/.test(s)) return Number(s);
-  const map = { 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9 };
-  if (s === '十') return 10;
-  let m = s.match(/^十([一二三四五六七八九])$/);
-  if (m) return 10 + map[m[1]];
-  m = s.match(/^([一二三四五六七八九])十([一二三四五六七八九])?$/);
-  if (m) return map[m[1]] * 10 + (m[2] ? map[m[2]] : 0);
-  m = s.match(/^([一二三四五六七八九])$/);
-  if (m) return map[m[1]];
-  return null;
-}
+import { guessChapterNo } from './chapter.mjs';
+import { buildFocusEvidence, renderFocusEvidence, buildFocusPrompt } from './exam-focus.mjs';
 
-/**
- * 从课件文件名里猜章节号，用于排序。
- *
- * 真实数据里至少四种写法（都实测见过）：
- *   "chapter 17 杂环化合物.pdf"        英文
- *   "9.4醛酮的氧化.pdf"                点号
- *   "第四节气相色谱法..."              中文数字 + 节
- *   "第四章 紫外可见吸收光谱法.pdf"     中文数字 + 章
- */
-export function guessChapterNo(name) {
-  const s = String(name || '').replace(/\.[a-z0-9]+$/i, '');
-  // chapter 17 / chapt11 / ch11
-  let m = s.match(/(?:chapter|chapt|ch)[\s._-]*(\d+)/i);
-  if (m) return Number(m[1]);
-  // 第9章 / 第 9 章 / 第四节 / 第十二节（中文数字也要认）
-  m = s.match(/第\s*([0-9一二三四五六七八九十]+)\s*[章节]/);
-  if (m) {
-    const n = cnToNum(m[1]);
-    if (n != null) return n;
-  }
-  // 9.4 / 10.5（取整数部分当章）
-  m = s.match(/^(\d{1,2})[.\s_-]/);
-  if (m) return Number(m[1]);
-  // 纯数字开头 "12 羧酸"
-  m = s.match(/^(\d{1,2})\s/);
-  if (m) return Number(m[1]);
-  return null;
-}
+// 重新导出，保持 `from './dossier.mjs'` 的旧引用与测试不用改
+export { guessChapterNo, cnToNum } from './chapter.mjs';
 
 /** 按章节号排序；没章节号的排后面（按文件名） */
 export function sortMaterialsByChapter(items) {
@@ -214,6 +177,19 @@ export function buildDossier(input) {
     lines.push('');
   }
 
+  /* ---------------- 3.6 考点推断素材（证据，不是结论） ---------------- */
+  // 立场：作业章节是强信号，课件覆盖是中信号；把证据摊开交给带联网能力的 AI，
+  // 让它结合考纲推断，而不是我们自己拍一个"重点"出来。
+  const focusEvidence = buildFocusEvidence(materials, works);
+  if (focusEvidence.chapters.length) {
+    lines.push(renderFocusEvidence({
+      courseName: course.name,
+      evidence: focusEvidence,
+      materialsCount: materials.length,
+      worksCount: works.length,
+    }));
+  }
+
   /* ---------------- 4. 通知 ---------------- */
   lines.push('## 四、老师通知');
   lines.push('');
@@ -262,16 +238,20 @@ export function buildDossier(input) {
   lines.push('');
 
   /* ---------------- 7. 给 AI 的提示词 ---------------- */
-  lines.push('## 七、想把这份档案变成复习计划？');
+  lines.push('## 七、想让这份档案变成复习计划？');
   lines.push('');
-  lines.push('把整份档案复制给 AI（豆包/千问/WorkBuddy 都行），加上这段话：');
+  lines.push('把整份档案复制给**有联网能力的 AI**（豆包/千问/WorkBuddy 都行），加上下面这段话。');
+  lines.push('');
+  lines.push('> 它会让 AI **先按证据排优先级、再联网查考纲**，并且把「证据支持的」和「网上查到的」分开列。');
+  lines.push('> 这样你一眼能看出哪条有据、哪条是它推测的。');
   lines.push('');
   lines.push('```text');
-  lines.push(`这是我「${course.name}」的备考档案。请帮我：`);
-  lines.push('1. 按上面的章节清单排一个到考试日的复习顺序，每天几章');
-  lines.push('2. 指出哪些章节的课件文件名看起来是重点（比如含"总结""复习""习题"）');
-  lines.push('3. 把未读的作业和未读通知先列出优先级');
-  lines.push('4. 如果信息不够（比如不知道考纲、不知道我哪章最弱），直接告诉我缺什么，不要编');
+  // 学校名：优先用课程对象上的（若调用方给了），否则 null —— 提示词里这项是可选的
+  lines.push(buildFocusPrompt({
+    courseName: course.name,
+    schoolName: course.school || null,
+    evidence: focusEvidence,
+  }));
   lines.push('```');
   lines.push('');
 

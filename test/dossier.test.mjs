@@ -141,7 +141,7 @@ test('buildDossier：七个小节齐全', () => {
     meta: { lessons: [{ name: '有机化学', dayOfWeek: 2, beginNumber: 1, length: 2, location: '博学楼', teacher: '张老师' }] },
   });
 
-  for (const heading of ['## 一、课件资料', '## 二、考试', '## 三、作业', '## 四、老师通知', '## 五、上课时间', '## 六、怎么用这份档案', '## 七、想把这份档案变成复习计划？']) {
+  for (const heading of ['## 一、课件资料', '## 二、考试', '## 三、作业', '## 四、老师通知', '## 五、上课时间', '## 六、怎么用这份档案', '## 七、想让这份档案变成复习计划？']) {
     assert.ok(md.includes(heading), `缺少小节：${heading}`);
   }
 });
@@ -173,10 +173,14 @@ test('buildDossier：明确写出"不替你判断重点"这条边界', () => {
   assert.ok(md.includes('不替你判断重点'), '这条边界必须写在档案里，否则用户会以为重点被筛过了');
 });
 
-test('buildDossier：末尾给出可粘给 AI 的提示词', () => {
+test('buildDossier：末尾给出可粘给 AI 的提示词，且明确要求"查不到就说查不到"', () => {
   const md = buildDossier({ course: COURSE, materials: [], exams: [], works: [], notices: [] });
   assert.ok(md.includes('```text'), '应有可复制的提示词块');
-  assert.ok(md.includes('不要再编') || md.includes('不要编'), '提示词里要明确禁止编造');
+  // 提示词的核心约束变了：不是笼统说"不要编"，而是要求把「证据支持的」与「网上查到的」分开，
+  // 查不到必须说查不到。这比"不要编"更能被 AI 执行。
+  assert.ok(md.includes('查不到就说查不到'), '提示词里要明确要求查不到就说查不到');
+  assert.ok(md.includes('联网'), '提示词要引导 AI 用联网能力补考纲');
+  assert.ok(md.includes('我的推测'), '提示词要求把无证据的推测单独标注');
 });
 
 test('buildDossier：课件章节分组确实出现在输出里', () => {

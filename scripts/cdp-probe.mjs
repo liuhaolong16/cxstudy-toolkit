@@ -144,6 +144,9 @@ async function main() {
   const shotPath = arg('screenshot', null);
   if (shotPath) {
     const params = { format: 'png' };
+    // clip 超出视口时，Chrome 默认不会截视口外的区域 —— 必须显式开 captureBeyondViewport。
+    // 章节测验一页 10 题远超一屏，靠这个开关一次截全，不用滚动拼接。
+    if (arg('beyond', null) !== null) params.captureBeyondViewport = true;
     const clipArg = arg('clip', null);
     if (clipArg) {
       const parts = clipArg.split(',').map((s) => Number(s.trim()));
