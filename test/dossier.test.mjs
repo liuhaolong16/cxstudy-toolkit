@@ -13,6 +13,8 @@ import {
   groupMaterialsByTopic,
   filterExamsByCourse,
   filterWorksByCourse,
+  extractChaptersFromWorks,
+  chapterCoverage,
   buildDossier,
 } from '../src/study/dossier.mjs';
 
@@ -195,4 +197,96 @@ test('buildDossier：课件章节分组确实出现在输出里', () => {
   assert.ok(i4 > 0, '应有"第 4 章"分组');
   assert.ok(i3 < i4, '第 3 章应在第 4 章之前');
   assert.ok(md.includes('平台不允许下载'), '不可下载的条目要标出来');
+});
+
+/* ------------------------------------------------------------------ */
+/* 作业覆盖度（原本想做的"按考纲裁剪"退化成这个）                        */
+/* ------------------------------------------------------------------ */
+
+test('extractChaptersFromWorks：从作业标题抽章节', () => {
+  const works = [
+    { title: '第一章 绪论' },
+    { title: '第二章 气相色谱-（4）气相色谱仪' },
+    { title: '第四章 紫外可见吸收光谱法（2）' },
+    { title: '第五章 原子吸收法（1）' },
+    { title: '课后练习' }, // 无章号
+  ];
+  const r = extractChaptersFromWorks(works);
+  assert.deepEqual(r.chapters, [1, 2, 4, 5]);
+  assert.deepEqual(r.unnumbered, ['课后练习']);
+  assert.equal(r.byChapter.get(2)[0], '第二章 气相色谱-（4）气相色谱仪');
+});
+
+test('extractChaptersFromWorks：同一章多个作业都留下来', () => {
+  const r = extractChaptersFromWorks([
+    { title: '第三章 液相色谱-固定相和流动相' },
+    { title: '第三章 高效液相色谱法-特性&检测器' },
+  ]);
+  assert.deepEqual(r.chapters, [3]);
+  assert.equal(r.byChapter.get(3).length, 2);
+});
+
+test('extractChaptersFromWorks：空输入返回空结构', () => {
+  const r = extractChaptersFromWorks([]);
+  assert.deepEqual(r.chapters, []);
+  assert.equal(r.byChapter.size, 0);
+  assert.deepEqual(r.unnumbered, []);
+});
+
+test('chapterCoverage：课件与作业的章号对照', () => {
+  const materials = [
+    { name: '第一章 绪论.pdf' },
+    { name: '第四章 紫外可见吸收光谱法.pdf' },
+  ];
+  const works = [
+    { title: '第一章 绪论' },
+    { title: '第二章 气相色谱' },
+    { title: '第四章 紫外可见' },
+    { title: '第五章 原子吸收法' },
+  ];
+  const cov = chapterCoverage(materials, works);
+
+  assert.deepEqual(cov.map((c) => c.chapter), [1, 2, 4, 5]);
+
+  const ch1 = cov.find((c) => c.chapter === 1);
+  assert.equal(ch1.hasMaterial, true);
+  assert.equal(ch1.hasWork, true);
+
+  const ch2 = cov.find((c) => c.chapter === 2);
+  assert.equal(ch2.hasMaterial, false, '第 2 章只有作业没有课件');
+  assert.equal(ch2.hasWork, true);
+
+  const ch5 = cov.find((c) => c.chapter === 5);
+  assert.equal(ch5.hasMaterial, false);
+});
+
+test('chapterCoverage：两边都空时返回空数组', () => {
+  assert.deepEqual(chapterCoverage([], []), []);
+});
+
+test('buildDossier：作业有课件缺时给出「值得去资料区再翻」的提示', () => {
+  const md = buildDossier({
+    course: { courseId: 266357324, clazzId: 152673108, name: '现代仪器分析' },
+    materials: [{ name: '第一章 绪论.pdf', downloadable: true }],
+    exams: [],
+    works: [
+      { kind: 'work', title: '第一章 绪论', courseId: 266357324, clazzId: 152673108, isRead: true, attachments: [] },
+      { kind: 'work', title: '第五章 原子吸收法（1）', courseId: 266357324, clazzId: 152673108, isRead: true, attachments: [] },
+    ],
+    notices: [],
+  });
+  assert.ok(md.includes('### 章节覆盖度'), '应有覆盖度小节');
+  assert.ok(md.includes('有作业但没找到对应课件'), '应指出第 5 章缺课件');
+  assert.ok(md.includes('值得去资料区再翻'), '应给出可执行提示');
+});
+
+test('buildDossier：明确说"这张表不是考纲"（防止被误读）', () => {
+  const md = buildDossier({
+    course: { courseId: 1, clazzId: 2, name: 'X' },
+    materials: [{ name: '第一章 A.pdf' }],
+    exams: [],
+    works: [{ kind: 'work', title: '第一章 作业', courseId: 1, clazzId: 2, isRead: true, attachments: [] }],
+    notices: [],
+  });
+  assert.ok(md.includes('不是考纲'), '必须写清这张表不是考纲——没有考纲时不能让人误以为筛过了重点');
 });

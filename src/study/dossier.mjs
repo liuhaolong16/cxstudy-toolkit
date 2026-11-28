@@ -187,6 +187,33 @@ export function buildDossier(input) {
   }
   lines.push('');
 
+  /* ---------------- 3.5 章节覆盖度 ---------------- */
+  const cov = chapterCoverage(materials, works);
+  if (cov.length) {
+    lines.push('### 章节覆盖度');
+    lines.push('');
+    lines.push('| 章 | 有课件 | 有作业 | 作业标题 |');
+    lines.push('|---|---|---|---|');
+    for (const c of cov) {
+      lines.push(`| 第 ${c.chapter} 章 | ${c.hasMaterial ? '✓' : '—'} | ${c.hasWork ? '✓' : '—'} | ${c.workTitles.join('；') || '—'} |`);
+    }
+    lines.push('');
+    const noWork = cov.filter((c) => c.hasMaterial && !c.hasWork).map((c) => c.chapter);
+    const noMat = cov.filter((c) => !c.hasMaterial && c.hasWork).map((c) => c.chapter);
+    if (noWork.length) {
+      lines.push(`> **有课件但没作业的章**：${noWork.map((c) => `第 ${c} 章`).join('、')}`);
+      lines.push('> 通常老师没强调这些章，可以放后看——但**如果老师课上特意讲过，还是要看**，这只是个提示。');
+      lines.push('');
+    }
+    if (noMat.length) {
+      lines.push(`> **有作业但没找到对应课件**：${noMat.map((c) => `第 ${c} 章`).join('、')}`);
+      lines.push('> 可能是资料在别的目录、或者老师没传。值得去资料区再翻一遍。');
+      lines.push('');
+    }
+    lines.push('> 这张表只说「**老师布置过作业的章**」，不是考纲。有没有考纲要看上面第四条通知。');
+    lines.push('');
+  }
+
   /* ---------------- 4. 通知 ---------------- */
   lines.push('## 四、老师通知');
   lines.push('');
@@ -258,6 +285,68 @@ export function filterWorksByCourse(works, course) {
     if (w.courseName && (w.courseName.includes(course.name) || course.name.includes(w.courseName))) return true;
     return false;
   });
+}
+
+/**
+ * 从作业标题里抽章节号，得出「老师布置过作业的章」。
+ *
+ * ## 为什么是"作业覆盖度"而不是"考纲"
+ *
+ * 原本想做「按考纲裁剪复习范围」。但实测扫了全部通知正文，**没有任何一条写着
+ * 考试范围/重点章节**——12 条看似命中的全是作业通知（"作业名称：第五章 原子吸收法"）。
+ *
+ * 没有考纲就谈不上按考纲裁剪。编一个"重点章节"出来会把复习方向带偏。
+ *
+ * 但作业标题里的"第X章"是**真实存在的数据**，能支持一个诚实的推断：
+ * **老师布置过作业的章，大概率是重点**。所以这里只说"作业覆盖到哪些章"，
+ * 不说"这些就是考点"。
+ *
+ * @param {Array} works pickWorkItems 的输出
+ * @returns {{chapters:number[], byChapter:Map<number,string[]>, unnumbered:string[]}}
+ */
+export function extractChaptersFromWorks(works) {
+  const byChapter = new Map();
+  const unnumbered = [];
+
+  for (const w of works) {
+    const title = String(w.title || '');
+    const ch = guessChapterNo(title);
+    if (ch == null) {
+      if (title) unnumbered.push(title);
+      continue;
+    }
+    if (!byChapter.has(ch)) byChapter.set(ch, []);
+    byChapter.get(ch).push(title);
+  }
+
+  const chapters = [...byChapter.keys()].sort((a, b) => a - b);
+  return { chapters, byChapter, unnumbered };
+}
+
+/**
+ * 算「课件章节」与「作业章节」的对照：哪些章有课件但没作业，哪些有作业但没课件。
+ *
+ * 这是备考时最有用的一张表：**没作业的章往往是老师没强调的**，
+ * **有作业没课件的章可能是补发的资料**。
+ *
+ * @param {Array} materials
+ * @param {Array} works
+ */
+export function chapterCoverage(materials, works) {
+  const matChapters = new Set();
+  for (const m of materials) {
+    const c = guessChapterNo(m.name);
+    if (c != null) matChapters.add(c);
+  }
+  const { chapters: workChapters, byChapter } = extractChaptersFromWorks(works);
+
+  const allChapters = [...new Set([...matChapters, ...workChapters])].sort((a, b) => a - b);
+  return allChapters.map((ch) => ({
+    chapter: ch,
+    hasMaterial: matChapters.has(ch),
+    hasWork: byChapter.has(ch),
+    workTitles: byChapter.get(ch) || [],
+  }));
 }
 
 /** 从全校考试里挑出属于某门课的（按课程名模糊匹配） */
