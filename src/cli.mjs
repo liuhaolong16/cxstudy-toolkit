@@ -26,6 +26,7 @@ import { ALL_EXAMS, schoolEntries, nextOccurrence } from './info/exams.mjs';
 import { listSources, validateSource, buildAddSourcePrompt, SOURCE_TEMPLATE, SOURCE_KINDS } from './info/sources.mjs';
 import { listPanRoot } from './api/pan.mjs';
 import { fetchJobs, finishDocumentJob, finishReadJob } from './api/job.mjs';
+import { LIST_QUESTIONS_JS, buildChooseJs, READ_ANSWERS_JS, SAVE_QUIZ_JS, SUBMIT_QUIZ_JS, CONFIRM_SUBMIT_JS } from './api/quiz.mjs';
 import { aggregateVideoMinutes } from './study/exam-focus.mjs';
 import { ChromeSession } from './browser/cdp.mjs';
 import { playKnowledge, inspectKnowledge } from './browser/player.mjs';
@@ -118,6 +119,8 @@ const USAGE = `
   cxa heal [--apply --yes] [--commit]     自愈：按配方自动改代码（默认预演，不碰文件）
       --with-tests                        连文档数字一起修（跑单测 + 自检，约 60 秒）
   cxa feedback ok|bad [理由]              标记这次用得对不对（Skill 健康统计用）
+  cxa quiz --url <入口> --dump            取题（截图 + 题号 + 选项字母，答案交给 AI 答）
+  cxa quiz --url <入口> --submit '{...}' --yes   提交答案（不可逆，必须 --yes）
   cxa mcp                                 以 MCP server 方式运行（stdio）
 
 play 选项：
@@ -1847,6 +1850,180 @@ async function cmdFeedback() {
   return 0;
 }
 
+/**
+ * `cxa quiz` —— 作业/测验的「取题」与「提交」两段式。
+ *
+ * ## 为什么拆成两段
+ *
+ * 题目文字是私有字体混淆的（`quiz.mjs:4-11`），只能看截图。
+ * 而**答题要靠 LLM** —— 但驱动本工具的是豆包/DSH 这类 AI 客户端，
+ * 它们本身就是 LLM，所以 **cxa 不内置模型，只做「取题」和「提交」**。
+ *
+ *   1. `cxa quiz --url <入口> --dump`   → 截图 + 题号 + 选项字母
+ *   2. AI 看图答题
+ *   3. `cxa quiz --url <入口> --submit '{"1":"A"}' --yes`
+ *
+ * ## 提交是不可逆的
+ *
+ * 所以 `--submit` 必须额外带 `--yes`，否则只打印"将要提交什么"。
+ */
+async function cmdQuiz() {
+  const url = arg('url');
+  if (!url) {
+    log(`作业/测验的取题与提交。
+
+用法：
+  cxa quiz --url <作业入口URL> --dump                    取题（截图 + 题号 + 选项字母）
+  cxa quiz --url <作业入口URL> --submit '{"1":"A"}' --yes  提交答案
+
+作业入口 URL 从哪来：
+  cxa notices --work        # 列出所有作业/考试，每条带「入口:」URL
+
+说明：
+  · 题目文字经平台字体混淆，只能看截图。--dump 会把每题截成 PNG 落到配置目录。
+  · **cxa 不内置 LLM** —— 答案由调用这个工具的 AI 给出。
+  · 提交不可逆，所以 --submit 必须带 --yes；不带时只打印将要提交的内容。
+  · 只支持有选项的题（单选/多选）。实践报告、简答这类没选项的会标 answerable:false。`);
+    return 1;
+  }
+
+  const isSubmit = has('submit');
+  const isDump = has('dump') || !isSubmit;
+
+  const session = await ChromeSession.launch({ headless: !has('headed'), cookies: loadCookies() });
+  try {
+    log(`打开: ${url.slice(0, 120)}`);
+    await session.goto(url, 12000);
+    const finalUrl = await session.evaluate('location.href');
+    const title = await session.evaluate('document.title');
+    log(`落点: ${String(finalUrl).slice(0, 120)}`);
+    log(`标题: ${title}`);
+
+    // ---- 取题 ----
+    if (isDump) {
+      const raw = await session.evaluate(LIST_QUESTIONS_JS);
+      let questions = [];
+      try {
+        questions = JSON.parse(raw);
+      } catch {
+        fail('抓题失败：' + String(raw).slice(0, 200));
+      }
+      if (!Array.isArray(questions) || !questions.length) {
+        log('✗ 这个页面没有抓到题目（可能是空页面、已提交、或不是答题页）');
+        return 1;
+      }
+
+      const workId = (String(finalUrl).match(/workId=(\d+)/) || [])[1] || 'unknown';
+      const shotDir = path.join(homeDir(), 'quiz-shots', String(workId));
+      fs.mkdirSync(shotDir, { recursive: true });
+
+      const out = [];
+      for (const q of questions) {
+        const answerable = Array.isArray(q.options) && q.options.length > 0;
+        let shotPath = null;
+        if (q.rect && q.rect.w > 10 && q.rect.h > 10) {
+          try {
+            const b64 = await session.screenshot({ clip: q.rect });
+            shotPath = path.join(shotDir, 'q' + q.no + '.png');
+            fs.writeFileSync(shotPath, Buffer.from(b64, 'base64'));
+          } catch (e) {
+            log(`  第 ${q.no} 题截图失败：${e.message}`);
+          }
+        }
+        out.push({
+          no: q.no,
+          qtype: q.qtype || '',
+          answerable,
+          letters: answerable ? q.options.map((o) => o.letter).filter(Boolean) : [],
+          screenshot: shotPath,
+        });
+      }
+
+      const answerableCount = out.filter((q) => q.answerable).length;
+      log('');
+      log(`共 ${out.length} 题，其中 ${answerableCount} 题有选项（可自动答），${out.length - answerableCount} 题没选项（实践报告/简答，AI 也答不了）`);
+      log('');
+      for (const q of out) {
+        log(`  第 ${q.no} 题  ${q.answerable ? '选项 ' + q.letters.join('/') : '（无选项）'}  ${q.screenshot ? '截图 ' + q.screenshot : '（无截图）'}`);
+      }
+      log('');
+      log('json:');
+      log(JSON.stringify({ ok: true, workId, title, questions: out }, null, 2));
+      log('');
+      log('下一步：把截图发给 AI 答题，然后：');
+      log(`  cxa quiz --url <同一个URL> --submit '{"1":"A"}' --yes`);
+      return 0;
+    }
+
+    // ---- 提交 ----
+    const rawAns = arg('submit');
+    let answers;
+    try {
+      answers = JSON.parse(rawAns);
+    } catch (e) {
+      fail('--submit 的值不是合法 JSON：' + e.message);
+    }
+    const entries = Object.entries(answers);
+    if (!entries.length) fail('--submit 传了空对象');
+
+    if (!has('yes')) {
+      log('');
+      log('将要提交（未提交，因为没带 --yes）：');
+      for (const [no, letters] of entries) log(`  第 ${no} 题 → ${letters}`);
+      log('');
+      log('确认无误后加 --yes 重新执行。**提交不可逆。**');
+      return 0;
+    }
+
+    let ok = 0;
+    let bad = 0;
+    for (const [no, letters] of entries) {
+      const arr = Array.isArray(letters) ? letters : String(letters).split('');
+      const r = await session.evaluate(buildChooseJs(Number(no), arr));
+      let parsed = null;
+      try {
+        parsed = JSON.parse(r);
+      } catch {}
+      if (parsed && parsed.ok) {
+        ok += 1;
+        log(`  第 ${no} 题 → ${arr.join('')}  ✓${parsed.stored != null ? '（stored=' + parsed.stored + '）' : ''}`);
+      } else {
+        bad += 1;
+        log(`  第 ${no} 题 → ${arr.join('')}  ✖ ${parsed ? parsed.reason || '点选失败' : '返回非 JSON'}`);
+      }
+    }
+
+    log('');
+    log(`点选：成功 ${ok}，失败 ${bad}`);
+    if (bad > 0) {
+      log('有题点选失败，已停止，不进入提交步骤（避免交半份）。');
+      return 1;
+    }
+
+    // 保存 → 提交 → 确认
+    log('保存…');
+    const saved = await session.evaluate(SAVE_QUIZ_JS);
+    log('  保存返回: ' + String(saved).slice(0, 160));
+
+    log('提交…');
+    const submitted = await session.evaluate(SUBMIT_QUIZ_JS);
+    log('  提交返回: ' + String(submitted).slice(0, 160));
+
+    await new Promise((s) => setTimeout(s, 1500));
+    const confirmed = await session.evaluate(CONFIRM_SUBMIT_JS);
+    log('  确认返回: ' + String(confirmed).slice(0, 160));
+
+    await new Promise((s) => setTimeout(s, 2500));
+    log('');
+    log('⚠ 提交动作已发出，但**是否真的交上去了要看平台作业列表的状态**：');
+    log('  cxa notices --work  → 看这条作业是否已读/已交');
+    log('  **不要只看「提交返回」就以为完成了。**');
+    return 0;
+  } finally {
+    await session.close();
+  }
+}
+
 async function cmdCheck() {
   const courseId = num('cid');
   const classId = num('clz');
@@ -1961,6 +2138,8 @@ async function main() {
       return cmdHeal();
     case 'feedback':
       return cmdFeedback();
+    case 'quiz':
+      return cmdQuiz();
     case 'mcp': {
       await import('../mcp/server.mjs');
       return null; // mcp server 自己接管进程

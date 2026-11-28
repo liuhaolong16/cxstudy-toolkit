@@ -264,6 +264,46 @@ export class ChromeSession {
     return res.result?.frameTree || null;
   }
 
+  /**
+   * 截图，返回 PNG 的 base64（不含 data: 前缀）。
+   *
+   * `clip` 用**页面坐标**（不是视口坐标），`{x, y, width, height, scale}`。
+   * 实测 `Page.captureScreenshot` 偶发超时，重试 4 次；
+   * **不要**用 `fromSurface:false`（更糟，见 AGENTS.md 已知坑）。
+   */
+  async screenshot({ clip = null, retries = 4 } = {}) {
+    let lastErr = null;
+    for (let i = 0; i < retries; i++) {
+      try {
+        const params = { format: 'png', captureBeyondViewport: true };
+        if (clip) {
+          // 同时接受 width/height 与 w/h —— `quizClipRect` 返回的是后者，
+          // 只认前者会让宽高落到 Math.max(1, undefined) = 1，截出 1x1 的空白图。
+          const cw = clip.width != null ? clip.width : clip.w;
+          const ch = clip.height != null ? clip.height : clip.h;
+          if (!(Number(cw) > 1) || !(Number(ch) > 1)) {
+            throw new Error(`截图区域无效: width=${cw} height=${ch}（需要 >1）`);
+          }
+          params.clip = {
+            x: Number(clip.x) || 0,
+            y: Number(clip.y) || 0,
+            width: Number(cw),
+            height: Number(ch),
+            scale: Number(clip.scale) || 1,
+          };
+        }
+        const res = await this.send('Page.captureScreenshot', params);
+        const data = res.result?.data;
+        if (data) return data;
+        lastErr = new Error('captureScreenshot 返回空 data');
+      } catch (e) {
+        lastErr = e;
+        await new Promise((s) => setTimeout(s, 400 * (i + 1)));
+      }
+    }
+    throw new Error('截图失败（重试 ' + retries + ' 次）：' + (lastErr ? lastErr.message : 'unknown'));
+  }
+
   async close() {
     if (this.closed) return;
     this.closed = true;

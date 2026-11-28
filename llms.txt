@@ -10,7 +10,7 @@
 
 一个零第三方依赖的 Node 工具（Node >= 22），把超星学习通/学习通 PC 端的能力整理成三种接口：
 
-- **CLI**：命令 `cxa`（旧别名 `cxstudy`），19 个子命令
+- **CLI**：命令 `cxa`（旧别名 `cxstudy`），20 个子命令
 - **MCP server**：`node mcp/server.mjs`（stdio，newline-delimited JSON-RPC），10 个工具
 - **文件协议**：`.captcha-tmp/`、`.cxstudy-questions/` 等目录里读写 JSON，任何能读文件写文件的客户端都能接
 

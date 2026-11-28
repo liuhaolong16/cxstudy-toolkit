@@ -464,6 +464,32 @@
         "ok": "文本确认（成功/失败都不返回 JSON）",
         "caveat": "只写本地 usage.jsonl，不联网、不上报"
       }
+    },
+    {
+      "id": "quiz",
+      "cli": "cxa quiz",
+      "mcp": null,
+      "kind": "write",
+      "since": "0.10.0",
+      "stability": "beta",
+      "summary": "作业/测验两段式：--dump 取题（每题截图 + 题号 + 选项字母），答案交给调用它的 AI；--submit 提交（不可逆，必须 --yes）。**不内置 LLM**",
+      "inputs": {
+        "required": [
+          "--url"
+        ],
+        "optional": [
+          "--dump（默认）",
+          "--submit <JSON>",
+          "--yes",
+          "--headed"
+        ],
+        "onMissing": "打印用法并退出码 1"
+      },
+      "returns": {
+        "ok": "--dump: {ok, workId, title, questions:[{no,qtype,answerable,letters[],screenshot}]}；--submit: 文本进度",
+        "fail": "抓不到题 / JSON 非法 / 空对象 / 点选失败 → 退出码 1，不进入提交",
+        "caveat": "只支持有选项的题；实践报告、简答会标 answerable:false。提交不可逆，不带 --yes 只打印"
+      }
     }
   ],
   "kindMeaning": {

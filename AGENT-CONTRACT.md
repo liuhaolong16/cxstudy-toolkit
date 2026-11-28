@@ -79,7 +79,7 @@ AI 能直接用的结构化材料；能后台播放视频过任务点；能按�
 | **MCP** | 客户端支持 MCP（Claude Code / Cursor / WorkBuddy / 千问桌面端） | `node mcp/server.mjs`（stdio） |
 | **文件协议** | 客户端只能读写文件 | `.captcha-tmp/`、`.cxstudy-questions/` 里的 JSON |
 
-**MCP 只有 10 个工具，CLI 有 19 个命令**。差异见 `manifest.json` 的 `capabilities[]`
+**MCP 只有 10 个工具，CLI 有 20 个命令**。差异见 `manifest.json` 的 `capabilities[]`
 （`cli` / `mcp` 字段哪个是 `null` 就是没这个入口）。
 
 ---
