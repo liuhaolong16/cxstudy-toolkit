@@ -19,6 +19,10 @@ played-*.json
 *.state.json
 logs/
 *.log
+# 使用观察（自我迭代）的本地记录：含命令使用历史，绝不入库
+usage.jsonl
+usage.jsonl.1
+
 # 播放器的两份日志（.err.log 与 .log.err 两种写法都见过，都排除）
 autoplay.log
 autoplay.err.log

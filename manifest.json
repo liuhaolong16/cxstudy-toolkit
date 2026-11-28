@@ -2,8 +2,8 @@
   "$comment": "本文件是「机器可读层」：任何 AI 客户端可以不读 Markdown，直接解析这里拿到能力清单。改命令时**必须同步这里**，否则 scripts/selftest.mjs 的一致性门会红。",
 
   "schemaVersion": "1",
-  "contractVersion": "1.1.0",
-  "pkgVersion": "0.5.0",
+  "contractVersion": "1.2.0",
+  "pkgVersion": "0.6.0",
 
   "entrypoints": {
     "cli": "cxa",

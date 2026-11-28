@@ -31,6 +31,14 @@ import { ChromeSession } from './browser/cdp.mjs';
 import { playKnowledge, inspectKnowledge } from './browser/player.mjs';
 import { runGates, summarize } from './gates/index.mjs';
 import { auditAll, renderAuditReport } from './audit/rules.mjs';
+import {
+  makeRecord,
+  appendRecord,
+  readRecords,
+  digest as digestUsage,
+  advice as usageAdvice,
+  renderUsageSection,
+} from './evolve/usage.mjs';
 
 const argv = process.argv.slice(2);
 
@@ -1429,6 +1437,19 @@ async function cmdAudit() {
   } else {
     log('');
     log(renderAuditReport(audit, { title: '交付面审计 · 超星学习通小助手' }));
+
+    // 使用观察：把"用着用着积累下来的问题"归纳成建议。
+    // 这是「在被使用的时候自我迭代」的出口 —— 不需要人主动做什么，
+    // 只要平时用过这个工具，这里就会有东西。
+    try {
+      const recs = readRecords(homeDir());
+      const dg = digestUsage(recs);
+      log('');
+      log(renderUsageSection(dg, usageAdvice(dg)));
+    } catch {
+      /* 使用观察失败不影响审计结论 */
+    }
+
     log('');
     if (audit.fail === 0) {
       log(`✓ 交付面自洽（通过 ${audit.pass}，跳过 ${audit.skip}${audit.skip ? '：跳过的判不了，不算通过' : ''}）`);
@@ -1545,11 +1566,47 @@ async function main() {
   }
 }
 
+/**
+ * 使用观察：每次命令结束静默记一行。
+ *
+ * 这是「在被使用的时候自我迭代」的落点 —— 不需要人记得去跑什么，
+ * 用着用着就把「哪个命令最近老失败」积累下来了，等 `cxa audit` 时归纳成建议。
+ *
+ * **三条纪律**：
+ * - 不往 stdout 打任何东西（否则污染 --json 输出）
+ * - 记录失败绝不影响主命令（appendRecord 内部已 catch）
+ * - 不记录任何用户数据（课程名/参数/cookie 都不进）
+ */
+function recordUsage(cmd, code, ms, errorMessage) {
+  try {
+    // 用户可以用 CXA_NO_USAGE=1 彻底关掉（文档里承诺过，必须有）
+    if (process.env.CXA_NO_USAGE === '1') return;
+    const ok = code === 0 || code === undefined || code === null;
+    const rec = makeRecord({
+      cmd: cmd === '--version' || cmd === '--help' || cmd === 'help' ? '' : cmd,
+      ok,
+      ms,
+      degraded: [],
+      reason: errorMessage || '',
+    });
+    // 帮助/版本这种不算一次"使用"，跳过（cmd 为空时 makeRecord 会给出空名）
+    if (!rec.cmd) return;
+    appendRecord(homeDir(), rec);
+  } catch {
+    /* 静默 —— 记录失败不能让主命令失败 */
+  }
+}
+
+const __usageT0 = Date.now();
+const __usageCmd = argv[0] || '';
+
 main()
   .then((code) => {
+    recordUsage(__usageCmd, code, Date.now() - __usageT0);
     if (typeof code === 'number') process.exit(code);
   })
   .catch((error) => {
+    recordUsage(__usageCmd, 1, Date.now() - __usageT0, error?.message || String(error));
     console.error('✖ ' + (error?.message || error));
     process.exit(1);
   });
