@@ -528,4 +528,6 @@ process.stdin.on('data', (chunk) => {
   }
 });
 
-process.stderr.write('[cxstudy-mcp] ready\n');
+// 2026-11-28：旧 0.1.0 独立实现也叫 cxstudy-mcp，DSH 曾因同名误接。
+// 启动日志带上规范名与版本号，便于宿主一眼确认自己连的是哪套实现。
+process.stderr.write(`[chaoxing-assistant ${PKG_VERSION}] MCP stdio ready\n`);
